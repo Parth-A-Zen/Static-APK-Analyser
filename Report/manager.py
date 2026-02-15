@@ -11,7 +11,7 @@ import logging
 from collections import defaultdict
 from typing import Dict, List, Set, Tuple
 
-from Engine.finding import Finding
+from Analyser.Engine.finding import Finding
 
 logger = logging.getLogger(__name__)
 

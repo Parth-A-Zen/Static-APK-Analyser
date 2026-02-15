@@ -22,9 +22,9 @@ import re
 import xml.etree.ElementTree as ET
 from typing import List, Optional, Set, Dict, Tuple
 
-from Engine.base_rule import BaseRule
-from Engine.finding import Finding
-from Loader.scope_filter import AnalysisReadyAPK
+from Analyser.Engine.base_rule import BaseRule
+from Analyser.Engine.finding import Finding
+from Analyser.Loader.scope_filter import AnalysisReadyAPK
 
 logger = logging.getLogger(__name__)
 

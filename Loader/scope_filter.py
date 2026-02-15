@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 
 # Import from apk_loader
 try:
-    from Loader.apk_loader import APKModel, Component, Permission
+    from Analyser.Loader.apk_loader import APKModel, Component, Permission
 except ImportError:
     raise ImportError(
         "apk_loader module is required. Ensure apk_loader.py is in the same directory."

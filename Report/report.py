@@ -12,8 +12,8 @@ import logging
 from datetime import datetime
 from typing import Any, Dict
 
-from Report.manager import FindingManager
-from Loader.scope_filter import AnalysisReadyAPK
+from Analyser.Report.manager import FindingManager
+from Analyser.Loader.scope_filter import AnalysisReadyAPK
 
 logger = logging.getLogger(__name__)
 
