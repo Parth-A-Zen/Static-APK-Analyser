@@ -125,6 +125,94 @@ List All Rules
 python analyse.py --list-rules
 ```
 
+## How to run the web interface locally:
+
+📦 Step 1: Clone or Download the Repository
+Option A: Clone with Git
+powershell
+
+git clone https://github.com/Parth-A-Zen/Static-APK-Analyser.git
+cd Static-APK-Analyser
+
+Option B: Download ZIP
+
+    Go to github.com/Parth-A-Zen/Static-APK-Analyser
+
+    Click "Code" → "Download ZIP"
+
+    Extract the ZIP file
+
+    Open PowerShell/Terminal in the extracted folder
+
+🔧 Step 2: Set Up Virtual Environment
+Windows (PowerShell)
+powershell
+
+### Create virtual environment
+python -m venv venv
+
+### Activate virtual environment
+.\venv\Scripts\Activate.ps1
+
+### If you get an execution policy error, run:
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+
+macOS / Linux
+bash
+
+### Create virtual environment
+python3 -m venv venv
+
+### Activate virtual environment
+source venv/bin/activate
+
+📥 Step 3: Install Dependencies
+powershell
+
+### Make sure you're in the project root (where requirements.txt is)
+pip install -r requirements.txt
+
+Contents of requirements.txt:
+txt
+
+androguard>=3.4.0
+cryptography>=41.0.0
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+### Run 'run.py'
+```bash
+python run.py
+```
+### 🌐 Step 6: Use the Web App
+
+    Open your browser and go to: http://127.0.0.1:8000
+
+    You'll see the CyberKnights APK Analyzer interface
+
+    Upload an APK file (drag & drop or click to browse)
+
+    Click "Analyze APK"
+
+    Wait for the analysis to complete (30-60 seconds)
+
+    View the results:
+
+        Risk score and level
+
+        Detected permissions
+
+        All findings by severity
+
+        OWASP category summary
+
+    Download reports:
+
+        Click "Download JSON" for raw data
+
+        Click "Download HTML" for formatted report
+
 🏗 Architecture Overview
 ```
 APK Loader
@@ -154,6 +242,10 @@ Features:
 - Intelligent filtering to reduce noise
 
 - Professional reporting structure
+
+### 🛑 Step 7: Stop the Server
+
+Press Ctrl + C in the terminal to stop the server.
 
 ⚠ Limitations:
 
