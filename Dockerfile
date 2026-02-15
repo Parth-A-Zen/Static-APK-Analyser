@@ -18,5 +18,5 @@ COPY . .
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
-# Use shell form to expand $PORT variable
-CMD uvicorn api.index:app --host 0.0.0.0 --port $PORT
+# Force shell expansion with sh -c
+CMD sh -c "uvicorn api.index:app --host 0.0.0.0 --port $PORT"
