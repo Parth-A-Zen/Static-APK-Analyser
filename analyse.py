@@ -115,7 +115,7 @@ class APKSecurityAnalyzer:
             apk_model = loader.load(str(apk_file))
             
             self.logger.info(
-                f"✓ APK loaded: {apk_model.apk.apk.manifest.package_name} "
+                f"✓ APK loaded: {apk_model.manifest.package_name} "
                 f"v{apk_model.manifest.version_name}"
             )
             
