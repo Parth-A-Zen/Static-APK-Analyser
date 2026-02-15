@@ -10,14 +10,17 @@ on the application's own code and identifying potential security issues.
 Author: Generated for APK Security Analysis
 License: MIT
 
-Version 2.2 - Production-Hardened with:
-- Provider-specific API key detection (Google, AWS, Stripe, GitHub, Slack)
-- Tightened entropy detection with contextual keyword requirements
-- UUID filtering in whitelist (eliminates common false positives)
-- Test vs production key distinction in confidence scoring
-- Word boundary checks for method detection (getInstance)
-- Improved dangerous permission matching (android.permission namespace)
-- All v2.1.1 features (whitelisting, multi-package, confidence scoring, etc.)
+Version 2.3 - False Positive Reduction:
+- All v2.2 features preserved
+- Expanded blocklist patterns: class descriptors (L...;), method descriptors ((...)...;),
+  and array descriptors ([L...;) are now excluded from secret detection
+- High-entropy detection skips strings that look like code artifacts
+  (contain parentheses, slashes, semicolons in signature-like patterns)
+- Confidence calculation penalises strings with code-artifact characters
+- "Potential API Key" logic requires stronger evidence: security keyword OR
+  very high entropy (>5.0), and strings with ; or / are excluded unless
+  they contain a clear keyword
+- Compatibility with updated apk_loader.py (fixed manifest parsing) maintained
 """
 
 import logging
@@ -76,7 +79,7 @@ class SecurityString:
     contains_db_conn: bool
     is_high_entropy: bool
     looks_like_api_key: bool
-    confidence: float  # NEW: Confidence score 0.0-1.0
+    confidence: float  # Confidence score 0.0-1.0
     entropy: Optional[float] = None
     pattern_matched: Optional[str] = None
     
@@ -178,23 +181,23 @@ class AnalysisReadyAPK:
     classes: List[FilteredClass]
     
     # API usage (categorized)
-    crypto_apis: List[CryptoAPI]  # Now uses CryptoAPI with parameters
+    crypto_apis: List[CryptoAPI]
     network_apis: List[APIAPI]
     storage_apis: List[APIAPI]
     reflection_apis: List[APIAPI]
     webview_apis: List[APIAPI]
     dynamic_code_apis: List[APIAPI]
     
-    # NEW: Source APIs (untrusted input detection)
+    # Source APIs (untrusted input detection)
     intent_apis: List[APIAPI]
     user_input_apis: List[APIAPI]
     web_input_apis: List[APIAPI]
     
-    # NEW: Sink APIs (dangerous operations)
+    # Sink APIs (dangerous operations)
     sql_apis: List[APIAPI]
     command_exec_apis: List[APIAPI]
     file_write_apis: List[APIAPI]
-    crypto_weak_apis: List[CryptoAPI]  # Uses CryptoAPI for parameter extraction
+    crypto_weak_apis: List[CryptoAPI]
     webview_sink_apis: List[APIAPI]
     
     # Security-relevant strings
@@ -210,7 +213,7 @@ class AnalysisReadyAPK:
     uses_cleartext_traffic: Optional[bool]
     network_security_config: Optional[str]
     
-    # NEW: Risk flags (computed from manifest)
+    # Risk flags (computed from manifest)
     cleartext_traffic_allowed: bool
     backup_enabled: bool
     uses_test_keys: bool
@@ -242,11 +245,9 @@ class AnalysisReadyAPK:
                 "reflection_apis_count": len(self.reflection_apis),
                 "webview_apis_count": len(self.webview_apis),
                 "dynamic_code_apis_count": len(self.dynamic_code_apis),
-                # NEW: Source API counts
                 "intent_apis_count": len(self.intent_apis),
                 "user_input_apis_count": len(self.user_input_apis),
                 "web_input_apis_count": len(self.web_input_apis),
-                # NEW: Sink API counts
                 "sql_apis_count": len(self.sql_apis),
                 "command_exec_apis_count": len(self.command_exec_apis),
                 "file_write_apis_count": len(self.file_write_apis),
@@ -264,11 +265,9 @@ class AnalysisReadyAPK:
                 "reflection": [api.to_dict() for api in self.reflection_apis],
                 "webview": [api.to_dict() for api in self.webview_apis],
                 "dynamic_code": [api.to_dict() for api in self.dynamic_code_apis],
-                # NEW: Source APIs
                 "intent": [api.to_dict() for api in self.intent_apis],
                 "user_input": [api.to_dict() for api in self.user_input_apis],
                 "web_input": [api.to_dict() for api in self.web_input_apis],
-                # NEW: Sink APIs
                 "sql": [api.to_dict() for api in self.sql_apis],
                 "command_exec": [api.to_dict() for api in self.command_exec_apis],
                 "file_write": [api.to_dict() for api in self.file_write_apis],
@@ -283,7 +282,6 @@ class AnalysisReadyAPK:
                 "debuggable": self.debuggable,
                 "uses_cleartext_traffic": self.uses_cleartext_traffic,
                 "network_security_config": self.network_security_config,
-                # NEW: Risk flags
                 "risk_flags": {
                     "cleartext_traffic_allowed": self.cleartext_traffic_allowed,
                     "backup_enabled": self.backup_enabled,
@@ -316,19 +314,12 @@ class ScopeFilter:
     """
     Post-processor for APKModel that filters and categorizes security-relevant data.
     
-    This class removes framework and library code, then organizes the remaining
-    application-specific data into buckets for security analysis.
-    
-    Version 2.2 - Production-Hardened Features:
-    - Provider-specific API key detection (Google Maps, AWS, Stripe, GitHub, Slack, Firebase)
-    - Contextual entropy detection (requires security keywords + high entropy)
-    - UUID filtering (8-4-4-4-12 and 32-char hex patterns)
-    - Test key distinction (reduces confidence for test/example/demo keys)
-    - Word boundary checks (prevents false matches like "widgetInstance")
-    - Namespace-aware permission matching (android.permission.* only)
-    - All v2.1.1 features: whitelisting, multi-package, confidence scoring, caching
-    
-    False Positive Rate: <10% (down from 60-70% in v1.0)
+    Version 2.3 - False Positive Reduction:
+    - All v2.2 features preserved
+    - Expanded blocklist: class descriptors, method descriptors, array descriptors
+    - Code-artifact detection in entropy analysis
+    - Confidence penalty for code-like strings
+    - Stronger API key evidence requirements
     """
     
     # Configuration constants
@@ -356,7 +347,7 @@ class ScopeFilter:
     ALLOWED_PACKAGES: List[str] = []
     BLOCKED_PACKAGES: List[str] = []
     
-    # NEW: Whitelist of known safe patterns to reduce false positives
+    # Whitelist of known safe patterns to reduce false positives
     SAFE_PATTERNS = {
         'url': [
             r'schemas?\.android\.com',
@@ -370,26 +361,25 @@ class ScopeFilter:
             r'localhost',
             r'127\.0\.0\.1',
             r'schemas\.openxmlformats\.org',
-            r'github\.com',              # Popular code hosting
-            r'githubusercontent\.com',   # GitHub raw content
-            r'googleapis\.com',          # Google APIs
-            r'gstatic\.com',             # Google static content
-            r'firebase\.google\.com',    # Firebase
-            r'stackoverflow\.com',       # Often referenced in code
-            r'maven\.org',               # Maven repository
-            r'gradle\.org',              # Gradle repository
-            r'jetbrains\.com',           # JetBrains tools
+            r'github\.com',
+            r'githubusercontent\.com',
+            r'googleapis\.com',
+            r'gstatic\.com',
+            r'firebase\.google\.com',
+            r'stackoverflow\.com',
+            r'maven\.org',
+            r'gradle\.org',
+            r'jetbrains\.com',
         ],
         'ip': [
-            # Use word boundaries (\b) to catch IPs in URLs like http://127.0.0.1:8080
             r'\b127\.0\.0\.1\b',
-            r'\b10\.0\.2\.2\b',          # Android emulator
-            r'\b10\.0\.2\.15\b',         # Android emulator
-            r'\b192\.168\.\d{1,3}\.\d{1,3}\b',  # Private network
-            r'\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b',  # Private network
-            r'\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b',  # Private network 172.16-31.x.x
+            r'\b10\.0\.2\.2\b',
+            r'\b10\.0\.2\.15\b',
+            r'\b192\.168\.\d{1,3}\.\d{1,3}\b',
+            r'\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b',
+            r'\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b',
             r'\b0\.0\.0\.0\b',
-            r'\blocalhost\b',            # localhost as IP context
+            r'\blocalhost\b',
         ],
         'email': [
             r'noreply@',
@@ -400,21 +390,21 @@ class ScopeFilter:
             r'.*@test\.com',
             r'.*@localhost',
             r'.*@domain\.com',
-            r'user@',                    # Generic placeholder
+            r'user@',
         ],
         'api_key': [
-            r'AKIAIOSFODNN7EXAMPLE',      # AWS example
-            r'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',  # AWS example secret
-            r'AIzaSyA.*example',          # Google example
+            r'AKIAIOSFODNN7EXAMPLE',
+            r'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+            r'AIzaSyA.*example',
             r'YOUR_API_KEY',
             r'your-api-key',
             r'API_KEY_HERE',
             r'INSERT_API_KEY',
             r'<api.key>',
-            r'\$\{.*\}',                  # Template variables
-            r'xoxb-.*-example',           # Slack example token
-            r'sk_test_',                  # Stripe test key
-            r'pk_test_',                  # Stripe test public key
+            r'\$\{.*\}',
+            r'xoxb-.*-example',
+            r'sk_test_',
+            r'pk_test_',
             # UUIDs (standard format: 8-4-4-4-12)
             r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
             # UUIDs without hyphens
@@ -427,8 +417,7 @@ class ScopeFilter:
         ]
     }
     
-    # NEW: Official Android dangerous permissions (from Android documentation)
-    # https://developer.android.com/reference/android/Manifest.permission
+    # Official Android dangerous permissions
     OFFICIAL_DANGEROUS_PERMISSIONS = {
         'android.permission.READ_CALENDAR',
         'android.permission.WRITE_CALENDAR',
@@ -458,11 +447,9 @@ class ScopeFilter:
         'android.permission.READ_EXTERNAL_STORAGE',
         'android.permission.WRITE_EXTERNAL_STORAGE',
         'android.permission.ACCESS_MEDIA_LOCATION',
-        # Android 12+ (API 31+)
         'android.permission.BLUETOOTH_SCAN',
         'android.permission.BLUETOOTH_CONNECT',
         'android.permission.BLUETOOTH_ADVERTISE',
-        # Android 13+ (API 33+)
         'android.permission.POST_NOTIFICATIONS',
         'android.permission.NEARBY_WIFI_DEVICES',
         'android.permission.READ_MEDIA_IMAGES',
@@ -471,7 +458,7 @@ class ScopeFilter:
         'android.permission.BODY_SENSORS_BACKGROUND',
     }
     
-    # Fallback keywords for custom permissions (kept for compatibility)
+    # Fallback keywords for custom permissions
     DANGEROUS_PERMISSION_KEYWORDS = [
         'CAMERA', 'RECORD_AUDIO', 'READ_CONTACTS', 'WRITE_CONTACTS', 'GET_ACCOUNTS',
         'READ_CALL_LOG', 'WRITE_CALL_LOG', 'PROCESS_OUTGOING_CALLS', 'READ_PHONE_STATE',
@@ -482,13 +469,34 @@ class ScopeFilter:
         'POST_NOTIFICATIONS',
     ]
     
-    # Adjusted for better accuracy (reduced from 4.5)
     MIN_STRING_ENTROPY = 4.2
-    
-    # Minimum length for high-entropy strings to be flagged
     MIN_HIGH_ENTROPY_LENGTH = 12
     
-    # API patterns
+    # ─── CHANGED (v2.3): Expanded blocklist patterns ─────────────────────
+    # These patterns identify strings that are code artifacts (class descriptors,
+    # method descriptors, array descriptors) and should never be treated as secrets.
+    CODE_ARTIFACT_BLOCKLIST = [
+        re.compile(r'^L[^;]+;$'),           # Class descriptor: Lcom/example/Foo;
+        re.compile(r'^\([^)]*\)[^;]*;$'),   # Method descriptor: ()Ljava/lang/String;
+        re.compile(r'^\[L[^;]+;$'),         # Array descriptor: [Lcom/example/Foo;
+        re.compile(r'^L[^;]+;->[^(]+\('),   # Full method signature: Lcom/example/Foo;->bar(
+        re.compile(r'^\[+[ZBCSIJFDV]$'),    # Primitive array descriptors: [I, [[B, etc.
+    ]
+    
+    # Characters that strongly indicate a string is a code artifact
+    CODE_ARTIFACT_CHARS = set('();/')
+    # ─── END CHANGED ─────────────────────────────────────────────────────
+    
+    # Security-related keywords used for contextual evidence in secret detection
+    # ─── CHANGED (v2.3): Extracted as class constant for reuse ───────────
+    SECRET_CONTEXT_KEYWORDS = [
+        'key', 'secret', 'token', 'auth', 'password', 'pass',
+        'credential', 'api', 'apikey', 'api_key', 'access',
+        'private', 'encrypt', 'signing',
+    ]
+    # ─── END CHANGED ─────────────────────────────────────────────────────
+    
+    # API patterns (unchanged)
     CRYPTO_PATTERNS = {
         r'Cipher;->getInstance': 'Cipher.getInstance',
         r'MessageDigest;->getInstance': 'MessageDigest.getInstance',
@@ -544,7 +552,6 @@ class ScopeFilter:
         r'DexFile;->': 'DexFile',
     }
     
-    # NEW: Source API patterns for untrusted input detection
     SOURCE_INTENT_PATTERNS = {
         r'Activity;->getIntent': 'Activity.getIntent',
         r'Intent;->getStringExtra': 'Intent.getStringExtra',
@@ -574,7 +581,6 @@ class ScopeFilter:
         r'WebView;->addJavascriptInterface': 'WebView.addJavascriptInterface',
     }
     
-    # NEW: Sink API patterns for dangerous operations
     SINK_SQL_PATTERNS = {
         r'SQLiteDatabase;->execSQL': 'SQLiteDatabase.execSQL',
         r'SQLiteDatabase;->rawQuery': 'SQLiteDatabase.rawQuery',
@@ -625,7 +631,7 @@ class ScopeFilter:
         self.app_package = model.manifest.package_name
         self.logger = logger
         
-        # NEW: Multi-package support
+        # Multi-package support
         self.app_packages: List[str] = []
         
         # Lazy-loaded caches
@@ -642,12 +648,12 @@ class ScopeFilter:
         self._webview_apis: Optional[List[APIAPI]] = None
         self._dynamic_code_apis: Optional[List[APIAPI]] = None
         
-        # NEW: Source API caches
+        # Source API caches
         self._intent_apis: Optional[List[APIAPI]] = None
         self._user_input_apis: Optional[List[APIAPI]] = None
         self._web_input_apis: Optional[List[APIAPI]] = None
         
-        # NEW: Sink API caches
+        # Sink API caches
         self._sql_apis: Optional[List[APIAPI]] = None
         self._command_exec_apis: Optional[List[APIAPI]] = None
         self._file_write_apis: Optional[List[APIAPI]] = None
@@ -669,10 +675,8 @@ class ScopeFilter:
     
     def _initialize_app_packages(self) -> None:
         """Initialize the list of application packages (auto-detect + manual overrides)."""
-        # Start with the main package
         detected = [self.app_package]
         
-        # Auto-detect additional packages if enabled
         if self.APP_PACKAGE_FILTER:
             all_classes = []
             for dex in self.model.dex_files:
@@ -681,7 +685,6 @@ class ScopeFilter:
             additional = self.auto_detect_packages(self.app_package, all_classes)
             detected.extend([p for p in additional if p not in detected])
         
-        # Add manually allowed packages
         for allowed in self.ALLOWED_PACKAGES:
             if allowed not in detected:
                 detected.append(allowed)
@@ -693,21 +696,6 @@ class ScopeFilter:
         """
         Auto-detect packages that likely belong to the application.
         
-        This method finds top-level packages that:
-        - Have at least 10 classes
-        - Are not framework or library packages
-        - Start with the same root as the main package (first two segments)
-        
-        **NOTE**: This method examines packages at various depths (2 to N segments)
-        to catch both shallow and moderately nested packages. However, very deeply
-        nested packages (e.g., com.example.app.feature.ui.widget.custom.impl) may
-        occasionally be missed if they don't meet the class count threshold.
-        The threshold of 10 classes is a reasonable balance to avoid false positives
-        from small utility packages while capturing legitimate app modules.
-        
-        For apps with unusual package structures, use ALLOWED_PACKAGES to manually
-        specify additional packages to include.
-        
         Args:
             main_package: The main application package (e.g., "com.example.app")
             all_classes: List of all class names from DEX files
@@ -715,50 +703,35 @@ class ScopeFilter:
         Returns:
             List of detected application packages
         """
-        # Get root (first two segments: com.example)
         root_segments = main_package.split('.')[:2]
         root = '.'.join(root_segments)
         
-        # Count classes per package
         package_counts: Dict[str, int] = {}
         
         for class_name in all_classes:
             if not class_name.startswith('L'):
                 continue
             
-            # Convert to package format
             pkg = class_name[1:].rstrip(';').replace('/', '.')
             
-            # Extract package (remove class name)
             if '.' in pkg:
                 pkg_parts = pkg.split('.')
-                # Try different package depths (from shallow to deep)
-                # This catches packages at various nesting levels
                 for depth in range(2, len(pkg_parts)):
                     pkg_prefix = '.'.join(pkg_parts[:depth])
                     package_counts[pkg_prefix] = package_counts.get(pkg_prefix, 0) + 1
         
-        # Filter packages
         detected = []
         for pkg, count in package_counts.items():
-            # Must have at least 10 classes
             if count < 10:
                 continue
-            
-            # Must start with the same root
             if not pkg.startswith(root):
                 continue
-            
-            # Must not be framework
             is_framework = any(pkg.startswith(fw) for fw in cls.FRAMEWORK_PACKAGES)
             if is_framework:
                 continue
-            
-            # Must not be library
             is_library = any(pkg.startswith(lib) for lib in cls.LIBRARY_PACKAGES)
             if is_library:
                 continue
-            
             detected.append(pkg)
         
         return detected
@@ -772,42 +745,38 @@ class ScopeFilter:
         self._webview_regex = {re.compile(p): name for p, name in self.WEBVIEW_PATTERNS.items()}
         self._dynamic_code_regex = {re.compile(p): name for p, name in self.DYNAMIC_CODE_PATTERNS.items()}
         
-        # NEW: Compile source API patterns
         self._intent_regex = {re.compile(p): name for p, name in self.SOURCE_INTENT_PATTERNS.items()}
         self._user_input_regex = {re.compile(p): name for p, name in self.SOURCE_USER_INPUT_PATTERNS.items()}
         self._web_input_regex = {re.compile(p): name for p, name in self.SOURCE_WEB_INPUT_PATTERNS.items()}
         
-        # NEW: Compile sink API patterns
         self._sql_regex = {re.compile(p): name for p, name in self.SINK_SQL_PATTERNS.items()}
         self._command_exec_regex = {re.compile(p): name for p, name in self.SINK_COMMAND_EXEC_PATTERNS.items()}
         self._file_write_regex = {re.compile(p): name for p, name in self.SINK_FILE_WRITE_PATTERNS.items()}
         self._crypto_weak_regex = {re.compile(p): name for p, name in self.SINK_CRYPTO_WEAK_PATTERNS.items()}
         self._webview_sink_regex = {re.compile(p): name for p, name in self.SINK_WEBVIEW_PATTERNS.items()}
         
-        # String patterns (combined for performance)
         self._url_pattern = re.compile(r'https?://[^\s<>"{}|\\^`\[\]]+|content://[^\s<>"{}|\\^`\[\]]+')
         
-        # Provider-specific API key patterns (more accurate than generic length check)
+        # Provider-specific API key patterns
         self._specific_api_patterns = {
-            'google_api': re.compile(r'AIza[0-9A-Za-z\-_]{35}'),  # Google API key (39 chars total)
-            'aws_access': re.compile(r'AKIA[0-9A-Z]{16}'),        # AWS Access Key
-            'aws_secret': re.compile(r'[0-9a-zA-Z/+]{40}'),       # AWS Secret (40 chars base64-like)
-            'stripe_live': re.compile(r'sk_live_[0-9a-zA-Z]{24,}'), # Stripe live secret key
-            'stripe_test': re.compile(r'sk_test_[0-9a-zA-Z]{24,}'), # Stripe test secret key
-            'github_token': re.compile(r'ghp_[0-9a-zA-Z]{36}'),   # GitHub personal access token
-            'slack_token': re.compile(r'xox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[0-9a-zA-Z]{24,}'), # Slack token
-            'firebase_key': re.compile(r'[0-9a-zA-Z_-]{40,}'),    # Firebase key (varies)
+            'google_api': re.compile(r'AIza[0-9A-Za-z\-_]{35}'),
+            'aws_access': re.compile(r'AKIA[0-9A-Z]{16}'),
+            'aws_secret': re.compile(r'[0-9a-zA-Z/+]{40}'),
+            'stripe_live': re.compile(r'sk_live_[0-9a-zA-Z]{24,}'),
+            'stripe_test': re.compile(r'sk_test_[0-9a-zA-Z]{24,}'),
+            'github_token': re.compile(r'ghp_[0-9a-zA-Z]{36}'),
+            'slack_token': re.compile(r'xox[baprs]-[0-9]{10,13}-[0-9]{10,13}-[0-9a-zA-Z]{24,}'),
+            'firebase_key': re.compile(r'[0-9a-zA-Z_-]{40,}'),
         }
         
-        # Generic fallback for unknown providers (tighter than before)
-        self._generic_api_pattern = re.compile(r'[a-zA-Z0-9_\-]{32,}')  # Raised from 20 to 32
+        self._generic_api_pattern = re.compile(r'[a-zA-Z0-9_\-]{32,}')
         
         self._ip_pattern = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
         self._email_pattern = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
         self._file_path_pattern = re.compile(r'(?:/data/data/|/sdcard/|/storage/|/mnt/)[^\s<>"{}|\\^`\[\]]*')
         self._db_conn_pattern = re.compile(r'jdbc:|mongodb:|postgres:|mysql:', re.IGNORECASE)
         
-        # NEW: Compile whitelist patterns
+        # Compile whitelist patterns
         self._whitelist_patterns = {}
         for pattern_type, patterns in self.SAFE_PATTERNS.items():
             self._whitelist_patterns[pattern_type] = [
@@ -824,16 +793,13 @@ class ScopeFilter:
                 for method in dex.methods:
                     self._dex_map[method] = dex.file_name
                 for string in dex.strings:
-                    if string not in self._dex_map:  # First occurrence
+                    if string not in self._dex_map:
                         self._dex_map[string] = dex.file_name
         return self._dex_map
     
     def is_app_class(self, class_name: str) -> bool:
         """
         Determine if a class belongs to the application's own code.
-        
-        Now supports multi-package applications by checking against all
-        detected app packages.
         
         Args:
             class_name: Class name in internal format (e.g., "Lcom/example/MyClass;")
@@ -846,27 +812,22 @@ class ScopeFilter:
         
         pkg = class_name[1:].rstrip(';').replace('/', '.')
         
-        # Check allowed packages (highest priority)
         for allowed in self.ALLOWED_PACKAGES:
             if pkg.startswith(allowed):
                 return True
         
-        # Check blocked packages
         for blocked in self.BLOCKED_PACKAGES:
             if pkg.startswith(blocked):
                 return False
         
-        # Check framework packages
         for framework in self.FRAMEWORK_PACKAGES:
             if pkg.startswith(framework):
                 return False
         
-        # Check library packages
         for library in self.LIBRARY_PACKAGES:
             if pkg.startswith(library):
                 return False
         
-        # NEW: Check against all detected app packages
         if self.APP_PACKAGE_FILTER:
             return any(pkg.startswith(app_pkg) for app_pkg in self.app_packages)
         
@@ -890,12 +851,6 @@ class ScopeFilter:
         """
         Check if a string contains a mix of character classes.
         
-        A string has mixed chars if it contains at least two of:
-        - Uppercase letters
-        - Lowercase letters
-        - Digits
-        - Special characters
-        
         Args:
             s: The string to check
             
@@ -910,11 +865,48 @@ class ScopeFilter:
         char_class_count = sum([has_upper, has_lower, has_digit, has_special])
         return char_class_count >= 2
     
+    # ─── CHANGED (v2.3): New helper to detect code artifacts ─────────────
+    def _is_code_artifact(self, s: str) -> bool:
+        """
+        Check if a string is a code artifact (class descriptor, method descriptor,
+        array descriptor, or method signature) that should not be treated as a secret.
+        
+        Args:
+            s: The string to check
+            
+        Returns:
+            True if the string looks like a code artifact
+        """
+        # Check against compiled blocklist patterns
+        for pattern in self.CODE_ARTIFACT_BLOCKLIST:
+            if pattern.match(s):
+                return True
+        
+        # Additional heuristic: strings containing '->' are method references
+        if '->' in s and ';' in s:
+            return True
+        
+        return False
+    
+    def _has_code_artifact_chars(self, s: str) -> bool:
+        """
+        Check if a string contains characters typical of code artifacts.
+        
+        This is a softer check than _is_code_artifact — used for confidence
+        penalties rather than outright exclusion.
+        
+        Args:
+            s: The string to check
+            
+        Returns:
+            True if the string contains code-like punctuation
+        """
+        return bool(self.CODE_ARTIFACT_CHARS.intersection(s))
+    # ─── END CHANGED ─────────────────────────────────────────────────────
+    
     def _is_base64_resource(self, s: str) -> bool:
         """
-        Check if a string looks like a Base64-encoded resource (image, XML, etc.).
-        
-        These are often false positives as they're just encoded resources.
+        Check if a string looks like a Base64-encoded resource.
         
         Args:
             s: The string to check
@@ -925,11 +917,9 @@ class ScopeFilter:
         if len(s) < 100:
             return False
         
-        # Check for Base64 characters
         if not ('+' in s or '/' in s):
             return False
         
-        # Check for common Base64 prefixes
         base64_prefixes = [
             'iVBORw0KGgo',  # PNG
             'R0lGOD',       # GIF
@@ -944,8 +934,6 @@ class ScopeFilter:
     def _calculate_entropy(self, s: str) -> float:
         """
         Calculate Shannon entropy of a string.
-        
-        Uses LRU cache to avoid recalculating for duplicate strings.
         
         Args:
             s: The string to analyze
@@ -964,6 +952,7 @@ class ScopeFilter:
                 entropy -= p * math.log2(p)
         return entropy
     
+    # ─── CHANGED (v2.3): Confidence penalty for code artifacts ───────────
     def _calculate_confidence(self, sec_string: SecurityString) -> float:
         """
         Calculate confidence score for a security string finding.
@@ -976,7 +965,8 @@ class ScopeFilter:
         - Additional patterns: +0.1 each
         - Short length penalty: -0.1 if < 10 chars
         - Mixed characters bonus: +0.05
-        - Test/example key penalty: -0.3 (NEW)
+        - Test/example key penalty: -0.3
+        - Code artifact penalty: -0.2 (NEW in v2.3)
         
         Args:
             sec_string: SecurityString object (partially constructed)
@@ -986,30 +976,27 @@ class ScopeFilter:
         """
         confidence = 0.3
         
-        # NEW: Check if it's a test/example key
+        # Check if it's a test/example key
         is_test_key = any(
             indicator in sec_string.value.lower()
             for indicator in ['test', 'example', 'demo', 'sample', 'placeholder', 'dummy']
         )
         
         # Provider-specific API keys get highest boost (unless test keys)
-        if 'API Key (' in sec_string.pattern_matched:  # Provider-specific pattern
+        if sec_string.pattern_matched and 'API Key (' in sec_string.pattern_matched:
             if is_test_key:
-                confidence += 0.1  # Test keys are less critical
+                confidence += 0.1
             else:
-                confidence += 0.3  # Production keys are high priority
-        # Generic API key pattern
+                confidence += 0.3
         elif sec_string.looks_like_api_key:
             if is_test_key:
                 confidence += 0.05
             else:
                 confidence += 0.2
         
-        # High entropy suggests randomness (keys, tokens)
         if sec_string.is_high_entropy:
             confidence += 0.1
         
-        # Each additional pattern increases confidence
         pattern_count = sum([
             sec_string.contains_url,
             sec_string.contains_ip,
@@ -1019,32 +1006,35 @@ class ScopeFilter:
         ])
         confidence += pattern_count * 0.1
         
-        # Length penalty for very short strings
         if sec_string.length < 10:
             confidence -= 0.1
         
-        # Bonus for mixed character classes (more likely to be real keys)
         if sec_string.looks_like_api_key and self._has_mixed_chars(sec_string.value):
             confidence += 0.05
         
-        # NEW: Test key penalty
+        # Test key penalty
         if is_test_key:
             confidence -= 0.3
         
-        # Cap at 0.95 (never 100% certain) and floor at 0.0
+        # ── NEW (v2.3): Penalise strings with code-artifact characters ──
+        if self._has_code_artifact_chars(sec_string.value):
+            confidence -= 0.2
+        # ── END NEW ─────────────────────────────────────────────────────
+        
         return max(0.0, min(0.95, confidence))
+    # ─── END CHANGED ─────────────────────────────────────────────────────
     
+    # ─── CHANGED (v2.3): Tightened secret detection ──────────────────────
     def _analyze_string(self, s: str, dex_file: str) -> Optional[SecurityString]:
         """
         Analyze a single string for security relevance.
         
-        Now includes:
-        - Whitelist checking to reduce false positives
-        - Provider-specific API key detection
-        - Entropy threshold with length, character mix, AND contextual keywords
-        - Base64 resource filtering
-        - Confidence scoring
-        - Test key detection
+        v2.3 changes:
+        - Blocklist check: class/method/array descriptors are rejected early
+        - High-entropy detection skips code artifacts
+        - API key detection requires keyword evidence OR very high entropy (>5.0)
+        - Strings with ; or / are not API keys unless they contain a keyword
+        - Confidence scoring penalises code-artifact characters
         
         Args:
             s: The string to analyze
@@ -1057,7 +1047,12 @@ class ScopeFilter:
         if len(s) < 4 or s in ['true', 'false', 'null', 'void', 'this']:
             return None
         
-        # NEW: Skip Base64-encoded resources
+        # ── NEW (v2.3): Early rejection of code artifacts ────────────────
+        if self._is_code_artifact(s):
+            return None
+        # ── END NEW ─────────────────────────────────────────────────────
+        
+        # Skip Base64-encoded resources
         if self._is_base64_resource(s):
             return None
         
@@ -1071,7 +1066,7 @@ class ScopeFilter:
         contains_file_path = bool(self._file_path_pattern.search(s))
         contains_db_conn = bool(self._db_conn_pattern.search(s))
         
-        # NEW: Whitelist checking
+        # Whitelist checking
         if contains_url and self._is_whitelisted(s, 'url'):
             return None
         if contains_ip and self._is_whitelisted(s, 'ip'):
@@ -1081,7 +1076,7 @@ class ScopeFilter:
         if contains_file_path and self._is_whitelisted(s, 'file_path'):
             return None
         
-        # NEW: Provider-specific API key detection (HIGH ACCURACY)
+        # Provider-specific API key detection (HIGH ACCURACY)
         specific_api_match = None
         for provider, pattern in self._specific_api_patterns.items():
             if pattern.search(s):
@@ -1092,30 +1087,58 @@ class ScopeFilter:
         if specific_api_match and self._is_whitelisted(s, 'api_key'):
             return None
         
-        # NEW: Improved high-entropy detection with contextual keywords
-        # Require: high entropy + length + mixed chars + security-related context
+        # ── CHANGED (v2.3): Check security context using class constant ──
         has_security_context = any(
-            keyword in s.lower() 
-            for keyword in ['key', 'token', 'secret', 'auth', 'password', 'pass', 'credential', 'api']
+            keyword in s.lower()
+            for keyword in self.SECRET_CONTEXT_KEYWORDS
         )
+        # ── END CHANGED ──────────────────────────────────────────────────
+        
+        # ── CHANGED (v2.3): High-entropy detection excludes code artifacts ─
+        # A string that contains code-artifact characters (parentheses,
+        # semicolons, slashes) is almost certainly not a secret, even if it
+        # happens to have high entropy and mixed characters.
+        is_code_like = self._has_code_artifact_chars(s)
         
         is_high_entropy = (
-            entropy > 4.5 and  # Raised from 4.2 for tighter detection
-            length >= 16 and   # Raised from 12
+            entropy > 4.5 and
+            length >= 16 and
             self._has_mixed_chars(s) and
-            has_security_context  # NEW: Requires contextual evidence
+            has_security_context and
+            not is_code_like  # NEW: exclude code artifacts
         )
+        # ── END CHANGED ──────────────────────────────────────────────────
         
-        # Generic API key detection (fallback, stricter than before)
-        looks_like_api_key = (
-            specific_api_match is not None or  # Provider-specific match OR
-            (
-                length >= 32 and  # Raised from 20
-                bool(self._generic_api_pattern.fullmatch(s)) and
-                entropy > 4.0 and
-                not self._is_whitelisted(s, 'api_key')
-            )
-        )
+        # ── CHANGED (v2.3): Tightened generic API key detection ──────────
+        # Generic API key detection now requires stronger evidence:
+        #   1. Must be >= 32 chars and match the generic pattern
+        #   2. Must have reasonable entropy (>4.0)
+        #   3. Must NOT be whitelisted
+        #   4. NEW: Must either contain a security keyword OR have very
+        #      high entropy (>5.0)
+        #   5. NEW: Strings with ; or / are excluded unless they contain
+        #      a clear keyword
+        looks_like_api_key = False
+        
+        if specific_api_match is not None:
+            # Provider-specific match — always trust it (already whitelist-checked)
+            looks_like_api_key = True
+        elif (
+            length >= 32
+            and bool(self._generic_api_pattern.fullmatch(s))
+            and entropy > 4.0
+            and not self._is_whitelisted(s, 'api_key')
+        ):
+            # Generic match — require additional evidence
+            has_code_punctuation = bool(set(';/()').intersection(s))
+            
+            if has_code_punctuation:
+                # Only flag if it explicitly contains a security keyword
+                looks_like_api_key = has_security_context
+            else:
+                # No code punctuation: accept with keyword OR very high entropy
+                looks_like_api_key = has_security_context or entropy > 5.0
+        # ── END CHANGED ──────────────────────────────────────────────────
         
         # Determine primary pattern
         pattern_matched = None
@@ -1138,7 +1161,6 @@ class ScopeFilter:
         
         # Only return if something suspicious was found
         if pattern_matched:
-            # Create initial SecurityString object
             sec_string = SecurityString(
                 value=s,
                 dex_file=dex_file,
@@ -1150,17 +1172,28 @@ class ScopeFilter:
                 contains_db_conn=contains_db_conn,
                 is_high_entropy=is_high_entropy,
                 looks_like_api_key=looks_like_api_key,
-                confidence=0.0,  # Will be calculated next
+                confidence=0.0,
                 entropy=entropy,
                 pattern_matched=pattern_matched
             )
             
-            # NEW: Calculate confidence score
+            # Calculate confidence score (includes code-artifact penalty)
             sec_string.confidence = self._calculate_confidence(sec_string)
+            
+            # ── NEW (v2.3): Final gate — reject if confidence is too low ─
+            # Strings that only matched "Potential API Key" or
+            # "High Entropy" but scored below 0.15 after penalties are
+            # almost certainly false positives.
+            if sec_string.confidence < 0.15 and pattern_matched in (
+                "Potential API Key", "High Entropy (with context)"
+            ):
+                return None
+            # ── END NEW ─────────────────────────────────────────────────
             
             return sec_string
         
         return None
+    # ─── END CHANGED ─────────────────────────────────────────────────────
     
     def _get_filtered_classes(self) -> List[FilteredClass]:
         """Get list of application-owned classes with metadata."""
@@ -1172,7 +1205,6 @@ class ScopeFilter:
             for dex in self.model.dex_files:
                 for cls in dex.classes:
                     if self.is_app_class(cls):
-                        # Parse class name
                         pkg = cls[1:].rstrip(';').replace('/', '.')
                         simple_name = pkg.split('.')[-1]
                         package = '.'.join(pkg.split('.')[:-1])
@@ -1212,18 +1244,6 @@ class ScopeFilter:
         """
         Extract string literals from method signature.
         
-        Looks for quoted strings and common patterns in the method signature
-        to capture algorithm names, keys, etc.
-        
-        **LIMITATION**: This function is inherently limited as method signatures
-        don't contain full bytecode or const-string instructions. For more accurate
-        parameter extraction, the rule engine should perform deeper analysis using
-        the Analysis object from Androguard, which provides access to actual
-        bytecode instructions and string references.
-        
-        This method provides a best-effort extraction from method signature metadata,
-        which may include parameter type information but rarely includes literal values.
-        
         Args:
             method_sig: Full method signature
             
@@ -1232,39 +1252,27 @@ class ScopeFilter:
         """
         parameters = []
         
-        # Look for quoted strings (most common in decompiled/smali output)
         quoted = re.findall(r'"([^"]+)"', method_sig)
         parameters.extend(quoted)
         
-        # Look for single-quoted strings
         single_quoted = re.findall(r"'([^']+)'", method_sig)
         parameters.extend(single_quoted)
         
-        # Look for string literals in the format used by smali
-        # e.g., const-string v0, "AES/CBC/PKCS5Padding"
         const_string = re.findall(r'const-string.*?["\']([^"\']+)["\']', method_sig)
         parameters.extend(const_string)
         
-        # Look for getInstance calls with algorithm names
-        # Matches: getInstance("AES"), getInstance('DES'), getInstance(AES)
-        # NEW: Word boundary check to avoid matching widgetInstance, etc.
         if re.search(r'\bgetInstance\b', method_sig):
-            # Try to find the parameter after getInstance(
             matches = re.finditer(r'getInstance\s*\(\s*["\']?([A-Za-z0-9/_]+)["\']?\s*[,)]', method_sig)
             for match in matches:
                 param = match.group(1).strip()
-                if param and param not in parameters and not param.startswith('v'):  # Exclude register names like v0, v1
+                if param and param not in parameters and not param.startswith('v'):
                     parameters.append(param)
         
-        # Look for algorithm transformation strings (e.g., AES/CBC/PKCS5Padding)
-        # Common pattern: ALGORITHM/MODE/PADDING
         transformation = re.findall(r'\b([A-Z0-9]{3,}(?:/[A-Z0-9]+){1,2})\b', method_sig)
         for trans in transformation:
             if trans not in parameters:
                 parameters.append(trans)
         
-        # Look for common crypto algorithm names even without quotes
-        # DES, AES, RSA, MD5, SHA1, SHA256, etc.
         crypto_keywords = re.findall(
             r'\b(DES|3DES|AES|RSA|DSA|EC|MD5|SHA1?|SHA-?1|SHA-?256|SHA-?384|SHA-?512|'
             r'HMAC|PBKDF2|Blowfish|RC4|ChaCha20)\b',
@@ -1274,7 +1282,6 @@ class ScopeFilter:
             if keyword not in parameters:
                 parameters.append(keyword)
         
-        # Remove duplicates while preserving order
         seen = set()
         unique_params = []
         for param in parameters:
@@ -1303,7 +1310,6 @@ class ScopeFilter:
             for pattern, api_name in patterns.items():
                 if pattern.search(method):
                     if category == "crypto":
-                        # Use CryptoAPI with parameter extraction
                         params = self._extract_string_parameters(method)
                         apis.append(CryptoAPI(
                             method_signature=method,
@@ -1313,14 +1319,13 @@ class ScopeFilter:
                             category=category
                         ))
                     else:
-                        # Use generic APIAPI for other categories
                         apis.append(APIAPI(
                             method_signature=method,
                             api_called=api_name,
                             category=category,
                             dex_file=dex_map.get(method, "unknown")
                         ))
-                    break  # Only match once per method
+                    break
         
         return apis
     
@@ -1336,17 +1341,14 @@ class ScopeFilter:
         
         self.logger.info("Preparing analysis-ready APK data")
         
-        # Get filtered data
         app_classes = self._get_filtered_classes()
         app_methods = self._get_filtered_methods()
         dex_map = self._build_dex_map()
         
-        # Count totals
         total_classes = sum(len(dex.classes) for dex in self.model.dex_files)
         total_methods = sum(len(dex.methods) for dex in self.model.dex_files)
         total_strings = sum(len(dex.strings) for dex in self.model.dex_files)
         
-        # Categorize APIs
         self.logger.info("Categorizing API usage")
         crypto_apis = self._categorize_apis(app_methods, self._crypto_regex, "crypto")
         network_apis = self._categorize_apis(app_methods, self._network_regex, "network")
@@ -1355,22 +1357,18 @@ class ScopeFilter:
         webview_apis = self._categorize_apis(app_methods, self._webview_regex, "webview")
         dynamic_code_apis = self._categorize_apis(app_methods, self._dynamic_code_regex, "dynamic_code")
         
-        # NEW: Categorize source APIs (untrusted input detection)
         self.logger.info("Categorizing source APIs (untrusted input)")
         intent_apis = self._categorize_apis(app_methods, self._intent_regex, "intent_source")
         user_input_apis = self._categorize_apis(app_methods, self._user_input_regex, "user_input_source")
         web_input_apis = self._categorize_apis(app_methods, self._web_input_regex, "web_input_source")
         
-        # NEW: Categorize sink APIs (dangerous operations)
         self.logger.info("Categorizing sink APIs (dangerous operations)")
         sql_apis = self._categorize_apis(app_methods, self._sql_regex, "sql_sink")
         command_exec_apis = self._categorize_apis(app_methods, self._command_exec_regex, "command_exec_sink")
         file_write_apis = self._categorize_apis(app_methods, self._file_write_regex, "file_write_sink")
-        # Crypto weak uses CryptoAPI for parameter extraction
         crypto_weak_apis = self._categorize_apis(app_methods, self._crypto_weak_regex, "crypto")
         webview_sink_apis = self._categorize_apis(app_methods, self._webview_sink_regex, "webview_sink")
         
-        # Analyze strings
         self.logger.info("Analyzing strings for security issues")
         security_strings = []
         for dex in self.model.dex_files:
@@ -1381,7 +1379,6 @@ class ScopeFilter:
         
         self.logger.info(f"Found {len(security_strings)} suspicious strings (with confidence scores)")
         
-        # Filter components
         self.logger.info("Filtering exported components")
         exported_components = []
         for comp in self.model.manifest.components:
@@ -1396,22 +1393,17 @@ class ScopeFilter:
                     has_intent_filters=len(comp.intent_filters) > 0
                 ))
         
-        # NEW: Filter dangerous permissions using official list first
         self.logger.info("Identifying dangerous permissions")
         dangerous_permissions = []
         for perm in self.model.manifest.permissions:
-            # First check official list (exact match)
             if perm.name in self.OFFICIAL_DANGEROUS_PERMISSIONS:
                 dangerous_permissions.append(perm.name)
-            # Fallback to keyword matching ONLY for android.permission namespace
-            # This prevents false matches like "com.example.CAMERA_SERVICE"
             elif perm.name.startswith("android.permission."):
                 for keyword in self.DANGEROUS_PERMISSION_KEYWORDS:
                     if keyword in perm.name.upper():
                         dangerous_permissions.append(perm.name)
                         break
         
-        # Convert third-party libraries
         third_party = [
             {
                 "name": lib.name,
@@ -1421,36 +1413,29 @@ class ScopeFilter:
             for lib in self.model.third_party_libraries
         ]
         
-        # NEW: Compute risk flags from manifest
         self.logger.info("Computing manifest risk flags")
         cleartext_traffic_allowed = bool(self.model.manifest.application.uses_cleartext_traffic)
         backup_enabled = bool(self.model.manifest.application.allow_backup)
         
-        # Check for test keys (heuristic: debug keystore fingerprints)
         uses_test_keys = False
-        if self.model.certificates:
-            for cert in self.model.certificates:
-                # Android debug keystore has known fingerprints
+        if self.model.apk.certificates:
+            for cert in self.model.apk.certificates:
                 debug_fingerprints = {
-                    'C51CE410C124A10E0DB5E4B97FC2E81DDB8AD4',  # Common debug cert
-                    '38918A453D07199354F8B19AF05EC6562CED5788',  # Another common debug
+                    'C51CE410C124A10E0DB5E4B97FC2E81DDB8AD4',
+                    '38918A453D07199354F8B19AF05EC6562CED5788',
                 }
-                # Check SHA1 fingerprint (remove colons)
                 sha1_clean = cert.fingerprint_sha1.replace(':', '').upper()
                 if sha1_clean in debug_fingerprints or 'debug' in cert.subject.lower():
                     uses_test_keys = True
                     break
         
-        # Check for exported components without permission
         exported_without_permission = any(
             comp.exported and not comp.permission
             for comp in exported_components
         )
         
-        # Check if dangerous permissions are used
         dangerous_permissions_used = len(dangerous_permissions) > 0
         
-        # Build analysis-ready object
         self._analysis_ready = AnalysisReadyAPK(
             package_name=self.model.manifest.package_name,
             version_name=self.model.manifest.version_name,
@@ -1469,11 +1454,9 @@ class ScopeFilter:
             reflection_apis=reflection_apis,
             webview_apis=webview_apis,
             dynamic_code_apis=dynamic_code_apis,
-            # NEW: Source APIs
             intent_apis=intent_apis,
             user_input_apis=user_input_apis,
             web_input_apis=web_input_apis,
-            # NEW: Sink APIs
             sql_apis=sql_apis,
             command_exec_apis=command_exec_apis,
             file_write_apis=file_write_apis,
@@ -1486,7 +1469,6 @@ class ScopeFilter:
             debuggable=self.model.manifest.application.debuggable,
             uses_cleartext_traffic=self.model.manifest.application.uses_cleartext_traffic,
             network_security_config=self.model.manifest.application.network_security_config,
-            # NEW: Risk flags
             cleartext_traffic_allowed=cleartext_traffic_allowed,
             backup_enabled=backup_enabled,
             uses_test_keys=uses_test_keys,
@@ -1500,7 +1482,7 @@ class ScopeFilter:
         self.logger.info(f"Sink API detection: {len(sql_apis)} SQL, {len(command_exec_apis)} command exec, {len(file_write_apis)} file write")
         self.logger.info(f"Risk flags: cleartext={cleartext_traffic_allowed}, backup={backup_enabled}, test_keys={uses_test_keys}")
         self.logger.info(f"False positive reduction: provider-specific patterns, contextual detection")
-        self.logger.info(f"v2.2: Production-hardened with UUID filtering, test key detection, tighter entropy")
+        self.logger.info(f"v2.3: Code-artifact blocklist, confidence penalties, stronger API key evidence")
         
         return self._analysis_ready
     
@@ -1516,7 +1498,7 @@ def main():
     from apk_loader import APKLoader
     
     parser = argparse.ArgumentParser(
-        description='Scope Filter v2.2 - Production-hardened APK security analysis'
+        description='Scope Filter v2.3 - False-positive-reduced APK security analysis'
     )
     parser.add_argument('apk_path', help='Path to the APK file')
     parser.add_argument('-o', '--output', help='Save filtered data to JSON file (optional)')
@@ -1527,28 +1509,24 @@ def main():
     args = parser.parse_args()
     
     try:
-        # Load APK
         print(f"Loading APK: {args.apk_path}")
         loader = APKLoader()
         model = loader.load(args.apk_path)
         
-        # Apply scope filter
-        print("Applying scope filter v2.2 (production-hardened)...")
+        print("Applying scope filter v2.3 (false-positive reduction)...")
         scope = ScopeFilter(model)
         analysis_ready = scope.prepare()
         
         print(f"✓ Filtering complete: {analysis_ready.package_name}")
         
-        # Save JSON if requested
         if args.output:
             pretty = not args.compact
             analysis_ready.save_json(args.output, pretty=pretty)
             print(f"✓ Filtered data saved to {args.output}")
         
-        # Print summary if requested
         if args.summary:
             print("\n" + "="*60)
-            print("SCOPE FILTER v2.2 - PRODUCTION HARDENED")
+            print("SCOPE FILTER v2.3 - FALSE POSITIVE REDUCTION")
             print("="*60)
             print(f"Package:          {analysis_ready.package_name}")
             print(f"Version:          {analysis_ready.version_name}")
@@ -1593,14 +1571,12 @@ def main():
             print(f"Dangerous perms used:  {analysis_ready.dangerous_permissions_used}")
             print("="*60)
         
-        # Show confidence scores if requested
         if args.show_confidence and analysis_ready.strings:
             print("\n" + "="*60)
             print("STRING FINDINGS WITH CONFIDENCE SCORES")
             print("="*60)
-            # Sort by confidence (highest first)
             sorted_strings = sorted(analysis_ready.strings, key=lambda x: x.confidence, reverse=True)
-            for i, s in enumerate(sorted_strings[:20], 1):  # Show top 20
+            for i, s in enumerate(sorted_strings[:20], 1):
                 print(f"\n{i}. [{s.pattern_matched}] Confidence: {s.confidence:.2f}")
                 print(f"   Value: {s.value[:80]}{'...' if len(s.value) > 80 else ''}")
                 print(f"   Entropy: {s.entropy:.2f}, Length: {s.length}")
@@ -1608,7 +1584,6 @@ def main():
                 print(f"\n... and {len(sorted_strings) - 20} more findings")
             print("="*60)
         
-        # Show hint if no options
         if not args.output and not args.summary:
             print("\n💡 Tip: Use --output to save JSON, --summary to view details, or --show-confidence to see string scores")
         

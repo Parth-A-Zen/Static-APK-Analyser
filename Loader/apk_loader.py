@@ -600,7 +600,7 @@ class APKLoader:
     def _extract_manifest(self, apk: APK) -> Manifest:
         """Extract AndroidManifest.xml information."""
         self.logger.info("Extracting manifest data")
-        
+
         # Basic info
         package_name = apk.get_package() or ""
         version_name = apk.get_androidversion_name() or ""
@@ -608,11 +608,32 @@ class APKLoader:
         min_sdk = apk.get_min_sdk_version() or None
         target_sdk = apk.get_target_sdk_version() or None
         max_sdk = apk.get_max_sdk_version() or None
-        
+
         # Parse XML once for reuse
         try:
-            xml_str = apk.get_android_manifest_xml()
-            root = ET.fromstring(xml_str.encode('utf-8'))
+            xml_raw = apk.get_android_manifest_xml()
+
+            if xml_raw is None:
+                self.logger.warning("get_android_manifest_xml() returned None")
+                raise ValueError("Manifest XML is None")
+
+            if isinstance(xml_raw, str):
+                # Already a unicode string – parse directly
+                root = ET.fromstring(xml_raw)
+            elif isinstance(xml_raw, bytes):
+                # Raw bytes – decode then parse
+                root = ET.fromstring(xml_raw.decode('utf-8'))
+            elif hasattr(xml_raw, 'tag'):
+                # lxml.etree._Element (or any Element-like object) –
+                # convert to a stdlib ElementTree element via serialisation
+                root = ET.fromstring(ET.tostring(xml_raw, encoding='unicode'))
+            else:
+                self.logger.warning(
+                    f"Unexpected manifest type: {type(xml_raw).__name__}; "
+                    "falling back to minimal manifest"
+                )
+                raise TypeError(f"Unsupported manifest type: {type(xml_raw)}")
+
         except Exception as e:
             self.logger.warning(f"Failed to parse manifest XML: {str(e)}")
             # Return minimal manifest
@@ -629,7 +650,9 @@ class APKLoader:
                 application=Application(),
                 components=[]
             )
-        
+
+        # ---- everything below this line is UNCHANGED ----
+
         # Helper functions for attribute extraction
         def get_bool_attr(elem, name: str, default: bool = True) -> bool:
             val = elem.get(f'{{http://schemas.android.com/apk/res/android}}{name}')
@@ -638,13 +661,13 @@ class APKLoader:
             if val is None:
                 return default
             return val.lower() == 'true'
-        
+
         def get_str_attr(elem, name: str) -> Optional[str]:
             val = elem.get(f'{{http://schemas.android.com/apk/res/android}}{name}')
             if val is None:
                 val = elem.get(name)
             return val
-        
+
         # Permissions - extract with maxSdkVersion from XML
         permissions = []
         for perm_elem in root.findall('.//uses-permission'):
@@ -654,9 +677,9 @@ class APKLoader:
                 permissions.append(Permission(
                     name=perm_name,
                     max_sdk_version=max_sdk_version,
-                    description=None  # Description resolution would require resource parsing
+                    description=None
                 ))
-        
+
         # Features - extract with required attribute
         features = []
         for feature_elem in root.findall('.//uses-feature'):
@@ -664,7 +687,7 @@ class APKLoader:
             if feature_name:
                 required = get_bool_attr(feature_elem, 'required', default=True)
                 features.append(Feature(name=feature_name, required=required))
-        
+
         # Libraries - extract with required attribute
         libraries = []
         for lib_elem in root.findall('.//uses-library'):
@@ -672,13 +695,13 @@ class APKLoader:
             if lib_name:
                 required = get_bool_attr(lib_elem, 'required', default=True)
                 libraries.append(Library(name=lib_name, required=required))
-        
+
         # Application attributes - pass root to avoid re-parsing
         application = self._extract_application_info_from_root(root)
-        
+
         # Components - pass root to avoid re-parsing
         components = self._extract_components_from_root(apk, root)
-        
+
         return Manifest(
             package_name=package_name,
             version_name=version_name,

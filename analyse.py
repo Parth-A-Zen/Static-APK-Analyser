@@ -1,20 +1,16 @@
 """
-APK Security Analysis Orchestrator
+APK Security Analysis Orchestrator - Enhanced v5.1
 
-Complete pipeline: Load APK → Filter Scope → Execute Rules → Process Findings → Generate Reports
+Complete pipeline with full utilization of:
+- RuleEngine v3.1: Source-sink taint analysis, cross-rule correlation
+- ScopeFilter v2.3: Advanced API bucketing and confidence scoring
+- All 32 security rules with adaptive thresholds
 
-Covers all 32 security rules across:
-- Information Storage (8 issues)
-- Input Validation (3 issues)
-- Component Exposure (4 issues)
-- Network Communication (5 issues)
-- Binary Protection & Environment Detection (4 issues)
-- Cryptographic Issues (2+ issues)
-- Additional security checks (clipboard, tapjacking, obfuscation, etc.)
+Pipeline: Load APK → Filter Scope → Execute Rules → Correlate → Generate Reports
 
 Author: APK Security Analysis
 License: MIT
-Version: 5.0 - Complete AndroGoat Coverage
+Version: 5.1 - Full Engine v3.1 Integration
 """
 
 import argparse
@@ -220,19 +216,26 @@ def _build_all_rules(
 
 
 # ============================================================================
-# Main Analyzer
+# Main Analyzer with Full Engine v3.1 Integration
 # ============================================================================
 
 class APKSecurityAnalyzer:
     """
-    Main orchestrator for APK security analysis.
+    Main orchestrator for APK security analysis with advanced features.
 
     Coordinates all components of the analysis pipeline:
     1. APK loading (APKLoader)
-    2. Scope filtering (ScopeFilter)
-    3. Rule execution (RuleEngine with 32 rules)
-    4. Finding management (FindingManager)
-    5. Report generation (ReportGenerator)
+    2. Scope filtering (ScopeFilter v2.3)
+    3. Rule execution (RuleEngine v3.1 with taint analysis)
+    4. Finding management (FindingManager with deduplication)
+    5. Report generation (ReportGenerator with rich metrics)
+    
+    New in v5.1:
+    - Full source-sink taint analysis integration
+    - Cross-rule correlation with confidence boosting
+    - Adaptive OWASP category thresholds
+    - Risk flags detection and reporting
+    - Enhanced logging of advanced metrics
     """
 
     def __init__(self):
@@ -248,18 +251,26 @@ class APKSecurityAnalyzer:
         verbose: bool = False,
         categories: Optional[List[str]] = None,
         exclude_rules: Optional[List[str]] = None,
+        parallel: bool = False,
+        workers: int = 4,
+        enable_taint_analysis: bool = True,
+        enable_correlation: bool = True,
     ) -> Optional[Path]:
         """
-        Perform complete APK security analysis.
+        Perform complete APK security analysis with advanced features.
 
         Args:
-            apk_path:       Path to the APK file to analyze
-            output_dir:     Directory for output files (default: current directory)
-            report_format:  "json", "html", or "both" (default: both)
-            deduplicate:    Whether to deduplicate findings (default: True)
-            verbose:        Enable verbose logging (default: False)
-            categories:     List of rule categories to run (default: all)
-            exclude_rules:  List of rule_ids to skip (default: none)
+            apk_path:               Path to the APK file to analyze
+            output_dir:             Directory for output files (default: current directory)
+            report_format:          "json", "html", or "both" (default: both)
+            deduplicate:            Whether to deduplicate findings (default: True)
+            verbose:                Enable verbose logging (default: False)
+            categories:             List of rule categories to run (default: all)
+            exclude_rules:          List of rule_ids to skip (default: none)
+            parallel:               Enable parallel rule execution (default: False)
+            workers:                Number of worker threads for parallel execution (default: 4)
+            enable_taint_analysis:  Enable source-sink taint analysis (default: True)
+            enable_correlation:     Enable cross-rule correlation (default: True)
 
         Returns:
             Path to the primary output file, or None if analysis failed
@@ -269,7 +280,7 @@ class APKSecurityAnalyzer:
             logging.getLogger().setLevel(logging.DEBUG)
 
         self.logger.info("=" * 70)
-        self.logger.info("APK Security Analysis - Starting")
+        self.logger.info("APK Security Analysis - Starting (Enhanced v5.1)")
         self.logger.info("=" * 70)
 
         # ------------------------------------------------------------------
@@ -303,9 +314,9 @@ class APKSecurityAnalyzer:
             )
 
             # ==============================================================
-            # Step 2: Apply Scope Filter
+            # Step 2: Apply Scope Filter (v2.3 with advanced features)
             # ==============================================================
-            self.logger.info("\n[2/5] Applying Scope Filter")
+            self.logger.info("\n[2/5] Applying Scope Filter (v2.3)")
             self.logger.debug(
                 "Filtering to app-specific code and analyzing security patterns..."
             )
@@ -316,9 +327,9 @@ class APKSecurityAnalyzer:
             self._log_scope_summary(analysis_ready)
 
             # ==============================================================
-            # Step 3: Create and Run Rule Engine
+            # Step 3: Create and Run Rule Engine (v3.1 with taint analysis)
             # ==============================================================
-            self.logger.info("\n[3/5] Executing Security Rules")
+            self.logger.info("\n[3/5] Executing Security Rules (Engine v3.1)")
 
             rules = _build_all_rules(
                 categories=categories,
@@ -327,13 +338,56 @@ class APKSecurityAnalyzer:
 
             self._log_rule_manifest(rules)
 
-            engine = RuleEngine(rules)
-            report = engine.run_all(analysis_ready)
-            findings = report.findings
+            # Build advanced engine configuration
+            engine_config = {
+                # v3.1: Source-Sink Taint Analysis
+                "enable_source_sink_correlation": enable_taint_analysis,
+                "source_sink_boost": 0.25,  # Boost confidence for source-sink flows
+                
+                # v3.0: Cross-Rule Correlation
+                "enable_correlation": enable_correlation,
+                "correlation_boost": 0.15,  # Boost confidence for correlated findings
+                
+                # Adaptive thresholds by OWASP category
+                "adaptive_thresholds": {
+                    "M1: Improper Credential Usage": 0.35,       # Lower threshold for credentials
+                    "M10: Insufficient Cryptography": 0.30,       # Lower for crypto issues
+                    "M5: Insecure Communication": 0.40,           # Medium for network
+                    "default": 0.40,                              # Default threshold
+                },
+                
+                # Performance settings
+                "parallel": parallel,
+                "max_workers": workers if parallel else 1,
+                "max_retries": 2,
+                "retry_delay_ms": 100,
+                
+                # Quality settings
+                "min_confidence": 0.30,  # Lower than default to catch more issues
+                "max_findings_per_rule": 50,  # Allow more findings per rule
+            }
 
             self.logger.info(
-                f"  ✓ Rule execution complete: {len(findings)} raw finding(s)"
+                f"  Engine Configuration:\n"
+                f"    • Taint Analysis:    {enable_taint_analysis}\n"
+                f"    • Correlation:       {enable_correlation}\n"
+                f"    • Parallel:          {parallel} ({workers} workers)\n"
+                f"    • Min Confidence:    {engine_config['min_confidence']}\n"
+                f"    • Adaptive Thresh:   Enabled"
             )
+
+            engine = RuleEngine(rules, config=engine_config)
+            analysis_report = engine.run_all(analysis_ready)
+            
+            # Extract findings from report
+            findings = analysis_report.findings
+
+            self.logger.info(
+                f"  ✓ Rule execution complete: {len(findings)} finding(s)"
+            )
+            
+            # Log advanced metrics from engine v3.1
+            self._log_engine_metrics(analysis_report)
 
             # ==============================================================
             # Step 4: Manage Findings
@@ -383,7 +437,13 @@ class APKSecurityAnalyzer:
             # ==============================================================
             # Final Summary
             # ==============================================================
-            self._log_final_summary(analysis_ready, summary, primary_output, rules)
+            self._log_final_summary(
+                analysis_ready, 
+                summary, 
+                primary_output, 
+                rules, 
+                analysis_report
+            )
 
             return primary_output
 
@@ -403,23 +463,44 @@ class APKSecurityAnalyzer:
     # ------------------------------------------------------------------
 
     def _log_scope_summary(self, data: AnalysisReadyAPK) -> None:
-        """Log scope filter results."""
+        """Log scope filter results with enhanced metrics."""
         self.logger.info(
             f"  ✓ Filtered to {data.app_classes_count} app classes, "
             f"{data.app_methods_count} app methods"
         )
-        self.logger.debug(f"    Crypto APIs:        {len(data.crypto_apis)}")
-        self.logger.debug(f"    Network APIs:       {len(data.network_apis)}")
-        self.logger.debug(f"    Storage APIs:       {len(data.storage_apis)}")
-        self.logger.debug(f"    Reflection APIs:    {len(data.reflection_apis)}")
-        self.logger.debug(f"    WebView APIs:       {len(data.webview_apis)}")
-        self.logger.debug(f"    Dynamic Code APIs:  {len(data.dynamic_code_apis)}")
-        self.logger.debug(f"    Suspicious strings: {len(data.strings)}")
-        self.logger.debug(
-            f"    Exported components: {len(data.exported_components)}"
+        
+        # API bucket counts (v2.3 feature)
+        self.logger.info("  API Buckets:")
+        self.logger.info(f"    • Crypto APIs:       {len(data.crypto_apis)}")
+        self.logger.info(f"    • Network APIs:      {len(data.network_apis)}")
+        self.logger.info(f"    • Storage APIs:      {len(data.storage_apis)}")
+        self.logger.info(f"    • WebView APIs:      {len(data.webview_apis)}")
+        self.logger.info(f"    • Dynamic Code APIs: {len(data.dynamic_code_apis)}")
+        self.logger.info(f"    • Reflection APIs:   {len(data.reflection_apis)}")
+        
+        # Source APIs (for taint analysis)
+        if hasattr(data, 'intent_apis'):
+            self.logger.info("  Source APIs (Taint Analysis):")
+            self.logger.info(f"    • Intent APIs:      {len(data.intent_apis)}")
+            self.logger.info(f"    • User Input APIs:  {len(data.user_input_apis)}")
+            self.logger.info(f"    • Web Input APIs:   {len(data.web_input_apis)}")
+        
+        # Sink APIs (for taint analysis)
+        if hasattr(data, 'sql_apis'):
+            self.logger.info("  Sink APIs (Taint Analysis):")
+            self.logger.info(f"    • SQL APIs:         {len(data.sql_apis)}")
+            self.logger.info(f"    • Command Exec:     {len(data.command_exec_apis)}")
+            self.logger.info(f"    • File Write APIs:  {len(data.file_write_apis)}")
+            self.logger.info(f"    • Crypto Weak APIs: {len(data.crypto_weak_apis)}")
+            self.logger.info(f"    • WebView Sink:     {len(data.webview_sink_apis)}")
+        
+        # String analysis
+        self.logger.info(f"  ✓ Suspicious strings: {len(data.strings)} (confidence-scored)")
+        self.logger.info(
+            f"  ✓ Exported components: {len(data.exported_components)}"
         )
-        self.logger.debug(
-            f"    Dangerous perms:    {len(data.dangerous_permissions)}"
+        self.logger.info(
+            f"  ✓ Dangerous permissions: {len(data.dangerous_permissions)}"
         )
 
     def _log_rule_manifest(self, rules: List[BaseRule]) -> None:
@@ -434,6 +515,39 @@ class APKSecurityAnalyzer:
                 self.logger.info(f"    [{cat_name}]")
                 for r in active_in_cat:
                     self.logger.info(f"      • {r.rule_id}")
+
+    def _log_engine_metrics(self, report) -> None:
+        """Log advanced metrics from RuleEngine v3.1."""
+        if report.correlated_findings > 0:
+            self.logger.info(
+                f"  ✓ Cross-rule correlation: {report.correlated_findings} finding(s) boosted"
+            )
+        
+        if report.source_sink_stats.source_sink_correlations > 0:
+            self.logger.info(
+                f"  ✓ Source-sink flows detected: "
+                f"{report.source_sink_stats.source_sink_correlations} taint path(s)"
+            )
+        
+        if report.duplicates_removed > 0:
+            self.logger.info(
+                f"  ✓ Semantic deduplication: {report.duplicates_removed} duplicate(s) removed"
+            )
+        
+        # Log risk flags if any are set
+        risk_count = sum([
+            report.risk_flags.cleartext_traffic_allowed,
+            report.risk_flags.backup_enabled,
+            report.risk_flags.uses_test_keys,
+            report.risk_flags.exported_without_permission,
+            report.risk_flags.dangerous_permissions_used,
+            report.risk_flags.debuggable,
+        ])
+        
+        if risk_count > 0:
+            self.logger.info(
+                f"  ⚠  Configuration risk flags: {risk_count} detected"
+            )
 
     def _log_severity_summary(self, summary: dict, manager: FindingManager) -> None:
         """Log severity breakdown with warnings for critical/high."""
@@ -461,10 +575,11 @@ class APKSecurityAnalyzer:
         summary: dict,
         primary_output: Optional[Path],
         rules: List[BaseRule],
+        analysis_report,
     ) -> None:
-        """Print the final analysis summary."""
+        """Print the final analysis summary with enhanced metrics."""
         self.logger.info("\n" + "=" * 70)
-        self.logger.info("APK Security Analysis - Complete")
+        self.logger.info("APK Security Analysis - Complete (v5.1 Enhanced)")
         self.logger.info("=" * 70)
         self.logger.info(f"  Package:     {data.package_name}")
         self.logger.info(f"  Version:     {data.version_name}")
@@ -482,16 +597,25 @@ class APKSecurityAnalyzer:
             f"Medium: {summary['Medium']}, "
             f"Low: {summary['Low']})"
         )
+        
+        # Enhanced metrics
+        self.logger.info(f"  Engine:      v3.1 (Next-Gen + Taint Analysis)")
+        self.logger.info(
+            f"  Exec Time:   {analysis_report.execution_time_seconds:.2f}s"
+        )
         self.logger.info(f"  Report:      {primary_output}")
 
         # OWASP coverage summary
-        owasp_hit = set()
-        if hasattr(self, '_last_findings'):
-            for f in self._last_findings:
-                owasp_hit.add(f.owasp_category)
-        self.logger.info(
-            f"  OWASP cats:  {len(owasp_hit) if owasp_hit else 'see report'}"
-        )
+        findings_by_owasp = {}
+        for finding in analysis_report.findings:
+            cat = finding.owasp_category
+            findings_by_owasp[cat] = findings_by_owasp.get(cat, 0) + 1
+        
+        if findings_by_owasp:
+            self.logger.info(
+                f"  OWASP cats:  {len(findings_by_owasp)} categories impacted"
+            )
+        
         self.logger.info("=" * 70)
 
     @staticmethod
@@ -507,30 +631,43 @@ class APKSecurityAnalyzer:
 def main():
     """Command-line interface for APK security analysis."""
     parser = argparse.ArgumentParser(
-        description="APK Security Analysis Tool — OWASP Mobile Top 10 2024",
+        description="APK Security Analysis Tool — OWASP Mobile Top 10 2024 (v5.1 Enhanced)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Full analysis with all 32 rules, both report formats
-  python analyze.py app.apk
+  # Full analysis with all 32 rules, advanced features enabled
+  python analyse.py app.apk
 
   # JSON report only
-  python analyze.py app.apk --format json
+  python analyse.py app.apk --format json
 
   # Save to specific directory
-  python analyze.py app.apk --output ./reports
+  python analyse.py app.apk --output ./reports
 
   # Run only network-related rules
-  python analyze.py app.apk --categories "Network Communication"
+  python analyse.py app.apk --categories "Network Communication"
 
   # Run all rules except obfuscation check
-  python analyze.py app.apk --exclude MISSING_OBFUSCATION
+  python analyse.py app.apk --exclude MISSING_OBFUSCATION
+
+  # Enable parallel execution with 8 worker threads
+  python analyse.py app.apk --parallel --workers 8
+
+  # Disable advanced features (basic mode)
+  python analyse.py app.apk --no-taint-analysis --no-correlation
 
   # List all available rules and exit
-  python analyze.py --list-rules
+  python analyse.py --list-rules
 
   # Verbose debugging
-  python analyze.py app.apk --verbose
+  python analyse.py app.apk --verbose
+
+Advanced Features (v5.1):
+  • Source-Sink Taint Analysis: Detect untrusted input flows to sensitive sinks
+  • Cross-Rule Correlation: Boost confidence when multiple rules flag same data
+  • Adaptive Thresholds: Different confidence thresholds per OWASP category
+  • Risk Flags Detection: Identify configuration-level security risks
+  • Enhanced Metrics: Detailed statistics on correlation and taint flows
 
 Available rule categories:
   • Binary Protection & Environment Detection  (4 rules)
@@ -594,6 +731,31 @@ Available rule categories:
     )
 
     parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Enable parallel rule execution (faster on multi-core systems)",
+    )
+
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help="Number of worker threads for parallel execution (default: 4)",
+    )
+
+    parser.add_argument(
+        "--no-taint-analysis",
+        action="store_true",
+        help="Disable source-sink taint analysis (faster but less accurate)",
+    )
+
+    parser.add_argument(
+        "--no-correlation",
+        action="store_true",
+        help="Disable cross-rule correlation (faster but less accurate)",
+    )
+
+    parser.add_argument(
         "--list-rules",
         action="store_true",
         help="List all available rules and exit",
@@ -633,6 +795,10 @@ Available rule categories:
         verbose=args.verbose,
         categories=args.categories,
         exclude_rules=args.exclude,
+        parallel=args.parallel,
+        workers=args.workers,
+        enable_taint_analysis=not args.no_taint_analysis,
+        enable_correlation=not args.no_correlation,
     )
 
     sys.exit(0 if result else 1)
@@ -692,12 +858,12 @@ def _validate_rule_coverage():
 
     if missing:
         logger.warning(
-            f"Rules in ALL_RULES but not in analyze.py RULE_CATEGORIES: "
+            f"Rules in ALL_RULES but not in analyse.py RULE_CATEGORIES: "
             f"{[cls.__name__ for cls in missing]}"
         )
     if extra:
         logger.warning(
-            f"Rules in analyze.py RULE_CATEGORIES but not in ALL_RULES: "
+            f"Rules in analyse.py RULE_CATEGORIES but not in ALL_RULES: "
             f"{[cls.__name__ for cls in extra]}"
         )
 

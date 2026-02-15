@@ -1,29 +1,28 @@
 """
-Rule Engine Module - Next-Gen (v3.0)
+Rule Engine Module - Next-Gen (v3.1)
 
 Revolutionary orchestration system with cross-rule correlation, adaptive filtering,
-and semantic deduplication. This represents the pinnacle of static analysis
-orchestration technology.
+semantic deduplication, and now SOURCE-SINK TAINT ANALYSIS.
 
-Revolutionary Features (v3.0):
+Revolutionary Features (v3.1):
+- Source-Sink Correlation: Enhanced taint analysis for untrusted input flows
+- Risk Flags Integration: Incorporate app configuration risks into report
+- Extended Logging: Source/sink API statistics and risk flag tracking
+- All v3.0 features: Cross-rule correlation, adaptive filtering, deduplication
+
+v3.0 Features:
 - Cross-Rule Correlation: Boost confidence when multiple rules flag same data
 - Adaptive Category Filtering: Different thresholds per OWASP category
 - Semantic Deduplication: Fingerprinting to eliminate duplicate findings
 - All v2.0 features: Confidence filtering, parallel execution, rich reporting
 
-Previous Features (v2.0):
-- Confidence-aware global filtering
-- Parallel execution with thread pool
-- Smart pre-filtering (skip irrelevant rules)
-- Rich structured reporting
-- Retry mechanism for resilience
-
 This engine represents the state-of-the-art in security analysis orchestration,
-combining machine learning-inspired heuristics with intelligent data correlation.
+combining machine learning-inspired heuristics with intelligent data correlation
+and taint analysis techniques.
 
 Author: Generated for APK Security Analysis
 License: MIT
-Version: 3.0 (Next-Gen)
+Version: 3.1 (Next-Gen + Taint Analysis)
 """
 
 import logging
@@ -84,11 +83,48 @@ class ConfidenceStats:
 
 
 @dataclass
+class RiskFlags:
+    """Application configuration risk flags (v3.1)."""
+    cleartext_traffic_allowed: bool = False
+    backup_enabled: bool = False
+    uses_test_keys: bool = False
+    exported_without_permission: bool = False
+    dangerous_permissions_used: bool = False
+    debuggable: bool = False
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return asdict(self)
+
+
+@dataclass
+class SourceSinkStats:
+    """Source and sink API statistics (v3.1)."""
+    intent_apis: int = 0
+    user_input_apis: int = 0
+    web_input_apis: int = 0
+    sql_apis: int = 0
+    command_exec_apis: int = 0
+    file_write_apis: int = 0
+    crypto_weak_apis: int = 0
+    webview_sink_apis: int = 0
+    source_sink_correlations: int = 0  # Findings with both source and sink
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return asdict(self)
+
+
+@dataclass
 class AnalysisReport:
     """
     Comprehensive analysis report with findings, statistics, and metadata.
     
-    Now includes advanced v3.0 metrics:
+    v3.1 additions:
+    - risk_flags: Application configuration risks
+    - source_sink_stats: Taint analysis statistics
+    
+    v3.0 metrics:
     - correlated_findings: Number of findings linked via cross-rule correlation
     - duplicates_removed: Number of semantic duplicates eliminated
     """
@@ -103,6 +139,10 @@ class AnalysisReport:
     correlated_findings: int = 0
     duplicates_removed: int = 0
     
+    # v3.1: Risk flags and source-sink stats
+    risk_flags: RiskFlags = field(default_factory=RiskFlags)
+    source_sink_stats: SourceSinkStats = field(default_factory=SourceSinkStats)
+    
     # Breakdowns
     findings_by_severity: Dict[str, int] = field(default_factory=dict)
     findings_by_category: Dict[str, int] = field(default_factory=dict)
@@ -113,7 +153,7 @@ class AnalysisReport:
     confidence_stats: ConfidenceStats = field(default_factory=ConfidenceStats)
     
     # Metadata
-    engine_version: str = "3.0"
+    engine_version: str = "3.1"
     timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     configuration: Dict[str, Any] = field(default_factory=dict)
     
@@ -135,6 +175,8 @@ class AnalysisReport:
                 "by_category": self.findings_by_category,
                 "by_rule": self.findings_by_rule,
             },
+            "risk_flags": self.risk_flags.to_dict(),
+            "source_sink_stats": self.source_sink_stats.to_dict(),
             "rule_stats": [stat.to_dict() for stat in self.rule_stats],
             "confidence_stats": self.confidence_stats.to_dict(),
             "metadata": {
@@ -166,14 +208,19 @@ class AnalysisReport:
 
 
 # ============================================================================
-# Next-Gen Rule Engine with Correlation & Deduplication
+# Next-Gen Rule Engine with Correlation & Taint Analysis
 # ============================================================================
 
 class RuleEngine:
     """
     Next-generation orchestration system with intelligent correlation.
     
-    Revolutionary v3.0 Features:
+    Revolutionary v3.1 Features:
+    - Source-sink taint analysis
+    - Risk flags integration
+    - Extended source/sink API logging
+    
+    v3.0 Features:
     - Cross-rule correlation
     - Adaptive category-specific filtering
     - Semantic deduplication via fingerprinting
@@ -203,6 +250,10 @@ class RuleEngine:
         "correlation_boost": 0.15,  # How much to boost confidence
         "adaptive_thresholds": {},  # Category -> min confidence
         "fingerprint_evidence_keys": ["value", "variable", "api", "parameter_hint", "sql_statement"],
+        
+        # v3.1 options
+        "enable_source_sink_correlation": True,
+        "source_sink_boost": 0.25,  # Higher boost for source->sink flows
     }
     
     def __init__(
@@ -225,11 +276,12 @@ class RuleEngine:
         
         self.logger.info(
             f"\n{'='*70}\n"
-            f"RuleEngine v3.0 (Next-Gen) Initialized\n"
+            f"RuleEngine v3.1 (Next-Gen + Taint Analysis) Initialized\n"
             f"{'='*70}\n"
             f"Rules: {len(rules)}\n"
             f"Parallel: {self.config['parallel']}\n"
             f"Correlation: {self.config['enable_correlation']}\n"
+            f"Source-Sink Analysis: {self.config['enable_source_sink_correlation']}\n"
             f"Adaptive Filtering: {len(self.config['adaptive_thresholds'])} categories\n"
             f"Global Confidence: {self.config['min_confidence_global']}\n"
             f"{'='*70}"
@@ -246,6 +298,9 @@ class RuleEngine:
         if not 0.0 <= self.config["correlation_boost"] <= 1.0:
             raise ValueError("correlation_boost must be between 0.0 and 1.0")
         
+        if not 0.0 <= self.config["source_sink_boost"] <= 1.0:
+            raise ValueError("source_sink_boost must be between 0.0 and 1.0")
+        
         # Validate adaptive thresholds
         for category, threshold in self.config["adaptive_thresholds"].items():
             if not 0.0 <= threshold <= 1.0:
@@ -256,13 +311,16 @@ class RuleEngine:
         Execute all rules with next-gen correlation and deduplication.
         
         Pipeline:
-        1. Rule filtering (categories, severities)
-        2. Smart pre-filtering (relevance checks)
-        3. Execution (parallel or sequential)
-        4. Cross-rule correlation (v3.0)
-        5. Semantic deduplication (v3.0)
-        6. Adaptive confidence filtering (v3.0)
-        7. Rich report generation
+        1. Extract risk flags and source/sink stats (v3.1)
+        2. Log extended scope information (v3.1)
+        3. Rule filtering (categories, severities)
+        4. Smart pre-filtering (relevance checks)
+        5. Execution (parallel or sequential)
+        6. Cross-rule correlation (v3.0)
+        7. Source-sink correlation (v3.1)
+        8. Semantic deduplication (v3.0)
+        9. Adaptive confidence filtering (v3.0)
+        10. Rich report generation
         
         Args:
             data: AnalysisReadyAPK instance to analyze
@@ -274,12 +332,22 @@ class RuleEngine:
         
         self.logger.info(
             f"\n{'='*70}\n"
-            f"Starting Next-Gen Analysis\n"
+            f"Starting Next-Gen Analysis (v3.1 + Taint Analysis)\n"
             f"{'='*70}"
         )
         
+        # ====================================================================
+        # v3.1: EXTRACT AND LOG RISK FLAGS & SOURCE/SINK STATS
+        # ====================================================================
+        risk_flags, source_sink_stats = self._extract_risk_data(data)
+        self._log_scope_summary(data, risk_flags, source_sink_stats)
+        
         # Initialize report
-        report = AnalysisReport(configuration=self.config.copy())
+        report = AnalysisReport(
+            configuration=self.config.copy(),
+            risk_flags=risk_flags,
+            source_sink_stats=source_sink_stats
+        )
         
         # Filter rules based on configuration
         active_rules = self._filter_rules()
@@ -304,6 +372,15 @@ class RuleEngine:
         if self.config["enable_correlation"]:
             all_findings, correlation_count = self._apply_correlation(all_findings)
             report.correlated_findings = correlation_count
+        
+        # ====================================================================
+        # v3.1: SOURCE-SINK CORRELATION (Taint Analysis)
+        # ====================================================================
+        if self.config["enable_source_sink_correlation"]:
+            all_findings, source_sink_count = self._apply_source_sink_correlation(
+                all_findings, data
+            )
+            report.source_sink_stats.source_sink_correlations = source_sink_count
         
         # ====================================================================
         # v3.0: SEMANTIC DEDUPLICATION
@@ -337,6 +414,112 @@ class RuleEngine:
         self._log_summary(report)
         
         return report
+    
+    # ========================================================================
+    # v3.1: RISK FLAGS & SOURCE/SINK EXTRACTION
+    # ========================================================================
+    
+    def _extract_risk_data(
+        self, 
+        data: AnalysisReadyAPK
+    ) -> Tuple[RiskFlags, SourceSinkStats]:
+        """
+        Extract risk flags and source/sink statistics from analysis-ready data.
+        
+        Uses backward-compatible getattr to handle older AnalysisReadyAPK versions.
+        
+        Args:
+            data: AnalysisReadyAPK instance
+            
+        Returns:
+            Tuple of (RiskFlags, SourceSinkStats)
+        """
+        # Extract risk flags (with backward compatibility)
+        risk_flags = RiskFlags(
+            cleartext_traffic_allowed=getattr(data, 'cleartext_traffic_allowed', False),
+            backup_enabled=getattr(data, 'backup_enabled', False),
+            uses_test_keys=getattr(data, 'uses_test_keys', False),
+            exported_without_permission=getattr(data, 'exported_without_permission', False),
+            dangerous_permissions_used=getattr(data, 'dangerous_permissions_used', False),
+            debuggable=getattr(data, 'debuggable', False)
+        )
+        
+        # Extract source/sink statistics
+        source_sink_stats = SourceSinkStats(
+            intent_apis=len(getattr(data, 'intent_apis', [])),
+            user_input_apis=len(getattr(data, 'user_input_apis', [])),
+            web_input_apis=len(getattr(data, 'web_input_apis', [])),
+            sql_apis=len(getattr(data, 'sql_apis', [])),
+            command_exec_apis=len(getattr(data, 'command_exec_apis', [])),
+            file_write_apis=len(getattr(data, 'file_write_apis', [])),
+            crypto_weak_apis=len(getattr(data, 'crypto_weak_apis', [])),
+            webview_sink_apis=len(getattr(data, 'webview_sink_apis', []))
+        )
+        
+        return risk_flags, source_sink_stats
+    
+    def _log_scope_summary(
+        self, 
+        data: AnalysisReadyAPK,
+        risk_flags: RiskFlags,
+        source_sink_stats: SourceSinkStats
+    ):
+        """
+        Log extended scope summary including source/sink stats and risk flags.
+        
+        Args:
+            data: AnalysisReadyAPK instance
+            risk_flags: Extracted risk flags
+            source_sink_stats: Source/sink statistics
+        """
+        self.logger.info(
+            f"\n{'='*70}\n"
+            f"Scope Analysis Summary\n"
+            f"{'='*70}"
+        )
+        
+        # Application info
+        self.logger.info(
+            f"Package:          {data.package_name}\n"
+            f"Version:          {data.version_name} ({data.version_code})\n"
+            f"Target SDK:       {data.target_sdk_version}\n"
+            f"App Classes:      {data.app_classes_count:,} / {data.total_classes:,}\n"
+            f"App Methods:      {data.app_methods_count:,} / {data.total_methods:,}"
+        )
+        
+        # Source APIs (untrusted input detection)
+        if hasattr(data, 'intent_apis'):
+            self.logger.info(
+                f"\nSource APIs (Untrusted Input):\n"
+                f"  Intent APIs:      {source_sink_stats.intent_apis}\n"
+                f"  User Input APIs:  {source_sink_stats.user_input_apis}\n"
+                f"  Web Input APIs:   {source_sink_stats.web_input_apis}"
+            )
+        
+        # Sink APIs (dangerous operations)
+        if hasattr(data, 'sql_apis'):
+            self.logger.info(
+                f"\nSink APIs (Dangerous Operations):\n"
+                f"  SQL APIs:         {source_sink_stats.sql_apis}\n"
+                f"  Command Exec:     {source_sink_stats.command_exec_apis}\n"
+                f"  File Write:       {source_sink_stats.file_write_apis}\n"
+                f"  Crypto Weak:      {source_sink_stats.crypto_weak_apis}\n"
+                f"  WebView Sink:     {source_sink_stats.webview_sink_apis}"
+            )
+        
+        # Risk flags
+        if hasattr(data, 'cleartext_traffic_allowed'):
+            self.logger.info(
+                f"\nRisk Flags:\n"
+                f"  Cleartext Traffic:    {risk_flags.cleartext_traffic_allowed}\n"
+                f"  Backup Enabled:       {risk_flags.backup_enabled}\n"
+                f"  Uses Test Keys:       {risk_flags.uses_test_keys}\n"
+                f"  Exported w/o Perm:    {risk_flags.exported_without_permission}\n"
+                f"  Dangerous Perms:      {risk_flags.dangerous_permissions_used}\n"
+                f"  Debuggable:           {risk_flags.debuggable}"
+            )
+        
+        self.logger.info(f"{'='*70}\n")
     
     # ========================================================================
     # v3.0: CROSS-RULE CORRELATION
@@ -452,6 +635,139 @@ class RuleEngine:
                     return value.strip().lower()
         
         return None
+    
+    # ========================================================================
+    # v3.1: SOURCE-SINK CORRELATION (Taint Analysis)
+    # ========================================================================
+    
+    def _apply_source_sink_correlation(
+        self, 
+        findings: List[Finding],
+        data: AnalysisReadyAPK
+    ) -> Tuple[List[Finding], int]:
+        """
+        Apply source-sink correlation for taint analysis.
+        
+        When a finding involves data that flows from an untrusted source (Intent,
+        user input, web) to a dangerous sink (SQL, command exec, file write),
+        apply a higher confidence boost to simulate taint analysis.
+        
+        Args:
+            findings: All findings from rules
+            data: AnalysisReadyAPK with source/sink API lists
+            
+        Returns:
+            Tuple of (correlated_findings, source_sink_count)
+        """
+        self.logger.info("\n" + "="*70)
+        self.logger.info("Applying Source-Sink Correlation (Taint Analysis)...")
+        self.logger.info("="*70)
+        
+        # Build sets of values from source and sink APIs
+        source_values = self._extract_api_values(
+            getattr(data, 'intent_apis', []) +
+            getattr(data, 'user_input_apis', []) +
+            getattr(data, 'web_input_apis', [])
+        )
+        
+        sink_values = self._extract_api_values(
+            getattr(data, 'sql_apis', []) +
+            getattr(data, 'command_exec_apis', []) +
+            getattr(data, 'file_write_apis', []) +
+            getattr(data, 'webview_sink_apis', [])
+        )
+        
+        if not source_values and not sink_values:
+            self.logger.info("  No source/sink APIs available for correlation")
+            self.logger.info("="*70 + "\n")
+            return findings, 0
+        
+        self.logger.info(f"  Source API values: {len(source_values)}")
+        self.logger.info(f"  Sink API values: {len(sink_values)}")
+        
+        source_sink_count = 0
+        boost_amount = self.config["source_sink_boost"]
+        
+        # Check each finding against source/sink values
+        for finding in findings:
+            evidence_value = self._extract_evidence_value(finding)
+            if not evidence_value:
+                continue
+            
+            # Check if finding value appears in both source and sink
+            in_source = any(evidence_value in src_val for src_val in source_values)
+            in_sink = any(evidence_value in sink_val for sink_val in sink_values)
+            
+            if in_source and in_sink:
+                # Source-sink correlation detected!
+                source_sink_count += 1
+                
+                original_confidence = self._get_confidence(finding)
+                
+                if original_confidence is not None:
+                    # Apply higher boost for source->sink flows
+                    new_confidence = min(1.0, original_confidence + boost_amount)
+                    self._set_confidence(finding, new_confidence)
+                    
+                    self.logger.info(
+                        f"\n  Source-Sink flow detected: {evidence_value[:60]}..."
+                    )
+                    self.logger.info(
+                        f"  Rule: {finding.rule_id}"
+                    )
+                    self.logger.info(
+                        f"  Confidence: {original_confidence:.2f} -> {new_confidence:.2f}"
+                    )
+                
+                # Add taint analysis metadata
+                evidence = getattr(finding, 'evidence', {})
+                evidence['taint_analysis'] = 'Source-Sink flow detected'
+                evidence['flow_type'] = 'untrusted_input_to_dangerous_sink'
+                
+                # Append to description
+                if hasattr(finding, 'description'):
+                    if "[Taint Analysis: Source->Sink Flow]" not in finding.description:
+                        finding.description += " [Taint Analysis: Source->Sink Flow]"
+        
+        if source_sink_count > 0:
+            self.logger.info(
+                f"\n✓ Detected {source_sink_count} source-sink flows (potential taint vulnerabilities)"
+            )
+        else:
+            self.logger.info("\n  No source-sink flows detected")
+        
+        self.logger.info("="*70 + "\n")
+        
+        return findings, source_sink_count
+    
+    def _extract_api_values(self, apis: List[Any]) -> Set[str]:
+        """
+        Extract normalized string values from API call list.
+        
+        Args:
+            apis: List of APIAPI or CryptoAPI objects
+            
+        Returns:
+            Set of normalized values (method signatures, API names)
+        """
+        values = set()
+        
+        for api in apis:
+            # Extract method signature
+            if hasattr(api, 'method_signature'):
+                values.add(api.method_signature.lower().strip())
+            
+            # Extract API called
+            if hasattr(api, 'api_called'):
+                values.add(api.api_called.lower().strip())
+            
+            # Extract parameters if available
+            if hasattr(api, 'parameters'):
+                for param in api.parameters:
+                    if isinstance(param, str):
+                        values.add(param.lower().strip())
+        
+        return values
     
     # ========================================================================
     # v3.0: SEMANTIC DEDUPLICATION
@@ -882,13 +1198,14 @@ class RuleEngine:
         """Log execution summary."""
         self.logger.info(
             f"\n{'='*70}\n"
-            f"Next-Gen Analysis Complete\n"
+            f"Next-Gen Analysis Complete (v3.1 + Taint Analysis)\n"
             f"{'='*70}\n"
-            f"Total Findings:      {report.total_findings}\n"
-            f"Correlated:          {report.correlated_findings}\n"
-            f"Duplicates Removed:  {report.duplicates_removed}\n"
-            f"Rules Executed:      {report.total_rules_executed}\n"
-            f"Execution Time:      {report.execution_time_seconds:.2f}s\n"
+            f"Total Findings:          {report.total_findings}\n"
+            f"Correlated:              {report.correlated_findings}\n"
+            f"Source-Sink Flows:       {report.source_sink_stats.source_sink_correlations}\n"
+            f"Duplicates Removed:      {report.duplicates_removed}\n"
+            f"Rules Executed:          {report.total_rules_executed}\n"
+            f"Execution Time:          {report.execution_time_seconds:.2f}s\n"
             f"{'='*70}\n"
             f"Findings by Severity:"
         )
@@ -898,6 +1215,32 @@ class RuleEngine:
             key=lambda x: {'Critical': 0, 'High': 1, 'Medium': 2, 'Low': 3}.get(x[0], 99)
         ):
             self.logger.info(f"  {severity:10} {count:3}")
+        
+        # Log risk flags summary
+        if any([
+            report.risk_flags.cleartext_traffic_allowed,
+            report.risk_flags.backup_enabled,
+            report.risk_flags.uses_test_keys,
+            report.risk_flags.exported_without_permission,
+            report.risk_flags.dangerous_permissions_used,
+            report.risk_flags.debuggable
+        ]):
+            self.logger.info(
+                f"{'='*70}\n"
+                f"Risk Flags Detected:"
+            )
+            if report.risk_flags.cleartext_traffic_allowed:
+                self.logger.info("  ⚠ Cleartext traffic allowed")
+            if report.risk_flags.backup_enabled:
+                self.logger.info("  ⚠ Backup enabled")
+            if report.risk_flags.uses_test_keys:
+                self.logger.info("  ⚠ Uses test/debug keys")
+            if report.risk_flags.exported_without_permission:
+                self.logger.info("  ⚠ Exported components without permission")
+            if report.risk_flags.dangerous_permissions_used:
+                self.logger.info("  ⚠ Dangerous permissions used")
+            if report.risk_flags.debuggable:
+                self.logger.info("  ⚠ Debuggable build")
         
         self.logger.info(f"{'='*70}\n")
     
@@ -923,7 +1266,8 @@ class RuleEngine:
     def __repr__(self) -> str:
         """String representation."""
         return (
-            f"RuleEngine v3.0 (rules={len(self.rules)}, "
+            f"RuleEngine v3.1 (rules={len(self.rules)}, "
             f"parallel={self.config['parallel']}, "
-            f"correlation={self.config['enable_correlation']})"
+            f"correlation={self.config['enable_correlation']}, "
+            f"taint_analysis={self.config['enable_source_sink_correlation']})"
         )
