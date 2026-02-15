@@ -106,13 +106,16 @@ class HardcodedSecretRule(BaseRule):
                 
                 # Build finding
                 pattern_desc = string.pattern_matched or "High Entropy Secret"
-                
+
+                # Calculate entropy safely
+                entropy_value = string.entropy if string.entropy is not None else 0.0
+
                 finding = Finding(
                     title=f"Hardcoded Secret Detected: {pattern_desc}",
                     description=(
                         f"Potential hardcoded secret found with {string.confidence:.0%} confidence. "
                         f"Pattern: {string.pattern_matched or 'Generic'}. "
-                        f"Length: {string.length}, Entropy: {string.entropy:.2f if string.entropy else 0:.2f}. "
+                        f"Length: {string.length}, Entropy: {entropy_value:.2f}. "
                         f"Hardcoded secrets in source code can be extracted by decompiling the APK."
                     ),
                     owasp_category=OWASP_M1,
@@ -127,13 +130,13 @@ class HardcodedSecretRule(BaseRule):
                     evidence={
                         "value_preview": string.value[:80] + ("..." if len(string.value) > 80 else ""),
                         "length": string.length,
-                        "entropy": round(string.entropy, 2) if string.entropy else None,
+                        "entropy": round(entropy_value, 2),  # Use the calculated value
                         "pattern": string.pattern_matched,
                         "confidence": round(string.confidence, 2),
                         "looks_like_api_key": string.looks_like_api_key,
                     },
                     rule_id=self.rule_id,
-                )
+)
                 findings.append(finding)
                 
                 # Limit findings to avoid spam

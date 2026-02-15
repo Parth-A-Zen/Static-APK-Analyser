@@ -378,7 +378,10 @@ class APKSecurityAnalyzer:
 
             engine = RuleEngine(rules, config=engine_config)
             analysis_report = engine.run_all(analysis_ready)
-            
+
+            if report_format == "memory":
+                return analysis_report
+
             # Extract findings from report
             findings = analysis_report.findings
 
@@ -874,3 +877,43 @@ _validate_rule_coverage()
 
 if __name__ == "__main__":
     main()
+
+
+def run_analysis(apk_path: str) -> dict:
+    """
+    FastAPI wrapper – returns structured analysis data.
+    """
+
+    analyzer = APKSecurityAnalyzer()
+
+    analysis_report = analyzer.analyze(
+        apk_path=apk_path,
+        report_format="memory",
+        parallel=True,
+        workers=4,
+        enable_taint_analysis=True,
+        enable_correlation=True,
+    )
+
+    if not analysis_report:
+        return {
+            "app_name": apk_path.split("/")[-1],
+            "permissions": [],
+            "findings": [],
+        }
+
+    return {
+        "app_name": apk_path.split("/")[-1],  # safer
+        "execution_time": analysis_report.execution_time_seconds,
+        "total_findings": len(analysis_report.findings),
+        "findings": [
+            {
+                "rule_id": f.rule_id,
+                "severity": f.severity,
+                "description": f.description,
+                "confidence": f.confidence,
+                "owasp_category": f.owasp_category,
+            }
+            for f in analysis_report.findings
+        ],
+    }
