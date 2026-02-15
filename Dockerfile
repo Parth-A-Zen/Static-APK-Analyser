@@ -7,14 +7,14 @@ RUN apt-get update && apt-get install -y \
     default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first (for better caching)
+# Copy requirements first
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application
 COPY . .
 
-# Create a non-root user to run the app
+# Create a non-root user
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
