@@ -13,7 +13,7 @@ import logging
 import traceback
 from typing import List
 
-from Rules.base_rule import BaseRule
+from Analyser.Engine.base_rule import BaseRule
 from Engine.finding import Finding
 from Loader.scope_filter import AnalysisReadyAPK
 
