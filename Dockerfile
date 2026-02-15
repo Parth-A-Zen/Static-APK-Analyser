@@ -18,5 +18,5 @@ COPY . .
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
-# Force shell expansion with sh -c
-CMD sh -c "uvicorn api.index:app --host 0.0.0.0 --port $PORT"
+# Run the application on port 8000 (hardcoded)
+CMD uvicorn api.index:app --host 0.0.0.0 --port 8000
