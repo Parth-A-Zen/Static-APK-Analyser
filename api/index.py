@@ -10,7 +10,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from collections import Counter
+import logging
+import warnings
 
+# Suppress all DEBUG and INFO logs from libraries
+logging.basicConfig(level=logging.WARNING)
+
+# Suppress specific noisy loggers
+logging.getLogger("androguard").setLevel(logging.ERROR)
+logging.getLogger("androguard.core").setLevel(logging.ERROR)
+logging.getLogger("androguard.core.axml").setLevel(logging.ERROR)
+logging.getLogger("androguard.core.apk").setLevel(logging.ERROR)
+logging.getLogger("Analyser").setLevel(logging.WARNING)
+logging.getLogger("Analyser.Loader").setLevel(logging.WARNING)
+logging.getLogger("Analyser.Engine").setLevel(logging.WARNING)
+logging.getLogger("uvicorn").setLevel(logging.WARNING)
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
+# Suppress warnings
+warnings.filterwarnings("ignore")
 # Add parent directory to path so Analyser can be imported
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

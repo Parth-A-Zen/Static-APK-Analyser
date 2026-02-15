@@ -7,6 +7,11 @@ RUN apt-get update && apt-get install -y \
     default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
+# Set environment variables to reduce logging
+ENV PYTHONWARNINGS=ignore
+ENV UVICORN_LOG_LEVEL=warning
+ENV UVICORN_ACCESS_LOG=0
+
 # Copy requirements first
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -18,5 +23,5 @@ COPY . .
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
-# Run the application on port 8000 (hardcoded)
-CMD uvicorn api.index:app --host 0.0.0.0 --port 8000
+# Run the application
+CMD uvicorn api.index:app --host 0.0.0.0 --port 8000 --log-level warning --access-log
