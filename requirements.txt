@@ -1,8 +1,4 @@
-# Your existing dependencies
 androguard>=3.4.0
 cryptography>=41.0.0
-
-# Web dependencies
 fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
 python-multipart>=0.0.6

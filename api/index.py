@@ -1,0 +1,142 @@
+import sys
+import os
+import subprocess
+import json
+import tempfile
+import shutil
+from pathlib import Path
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse, FileResponse
+from collections import Counter
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+app = FastAPI(title="CyberKnights APK Analyzer API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+def calculate_risk(findings):
+    """Calculate risk score based on severity distribution"""
+    severity_counts = Counter(f.get("severity", "Low") for f in findings)
+    
+    high = severity_counts.get("High", 0)
+    medium = severity_counts.get("Medium", 0)
+    low = severity_counts.get("Low", 0)
+    critical = severity_counts.get("Critical", 0)
+    
+    raw_score = (critical * 15) + (high * 10) + (medium * 5) + (low * 2)
+    risk_score = min(100, raw_score)
+    
+    if risk_score < 30:
+        risk_level = "Safe"
+    elif risk_score < 60:
+        risk_level = "Moderate"
+    else:
+        risk_level = "High"
+    
+    summary = f"{critical} Critical, {high} High, {medium} Medium, {low} Low severity issues detected."
+    
+    return risk_score, risk_level, summary
+
+@app.post("/analyze")
+async def analyze_apk(file: UploadFile = File(...)):
+    """Upload APK and run analysis"""
+    if not file.filename.endswith(".apk"):
+        raise HTTPException(status_code=400, detail="Only .apk files are allowed")
+    
+    # Save uploaded file
+    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    
+    try:
+        # Create temp directory for outputs
+        with tempfile.TemporaryDirectory() as output_dir:
+            # Run the analyzer CLI
+            analyse_script = os.path.join(os.path.dirname(__file__), "..", "Analyser", "analyse.py")
+            
+            # Run both JSON and HTML generation
+            result = subprocess.run([
+                sys.executable,
+                analyse_script,
+                file_path,
+                "--format", "both",
+                "--output", output_dir
+            ], capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                raise Exception(f"Analysis failed: {result.stderr}")
+            
+            # Find the generated files
+            json_files = list(Path(output_dir).glob("*.json"))
+            html_files = list(Path(output_dir).glob("*.html"))
+            
+            if not json_files:
+                raise Exception("No report files generated")
+            
+            # Read the JSON report
+            with open(json_files[0], 'r') as f:
+                full_report = json.load(f)
+            
+            # Read HTML content if available
+            html_content = None
+            if html_files:
+                with open(html_files[0], 'r') as f:
+                    html_content = f.read()
+            
+            # Calculate risk score for frontend display
+            all_findings = full_report.get("all_findings", [])
+            risk_score, risk_level, summary = calculate_risk(all_findings)
+            
+            # Extract permissions for quick display
+            permissions = []
+            for finding in all_findings:
+                if finding.get("rule_id") == "DANGEROUS_PERMISSION_DECLARED":
+                    perm = finding.get("evidence", {}).get("permission")
+                    if perm:
+                        permissions.append(perm)
+            
+            # Return comprehensive response
+            return {
+                "success": True,
+                "app_name": file.filename,
+                "risk_score": risk_score,
+                "risk_level": risk_level,
+                "summary": summary,
+                "permissions": permissions[:15],  # Top 15 for quick view
+                "full_report": full_report,  # Complete JSON data
+                "html_report": html_content,  # Full HTML content
+                "stats": {
+                    "total_findings": full_report.get("analysis_summary", {}).get("total_findings", 0),
+                    "critical": full_report.get("analysis_summary", {}).get("critical_findings", 0),
+                    "high": full_report.get("analysis_summary", {}).get("high_findings", 0),
+                    "medium": full_report.get("analysis_summary", {}).get("medium_findings", 0),
+                    "low": full_report.get("analysis_summary", {}).get("low_findings", 0)
+                }
+            }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    finally:
+        # Cleanup uploaded file
+        if os.path.exists(file_path):
+            os.unlink(file_path)
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+
+# Mount static files
+app.mount("/", StaticFiles(directory="public", html=True), name="static")

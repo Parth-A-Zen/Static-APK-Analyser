@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CyberKnights APK Analyzer</title>
+    
+    <!-- Bootstrap & Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- DataTables for nice tables -->
+    <link href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    
+    <!-- Syntax highlighting for code -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
+    
+    <style>
+        body {
+            background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+            font-family: 'Segoe UI', sans-serif;
+            color: white;
+            min-height: 100vh;
+        }
+
+        .logo { font-size: 28px; font-weight: bold; }
+        .logo span { color: #00e5ff; }
+
+        .glass {
+            background: rgba(255,255,255,0.08);
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            padding: 30px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .drop-area {
+            border: 2px dashed rgba(255,255,255,0.4);
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        .drop-area:hover {
+            background: rgba(255,255,255,0.1);
+            border-color: #00e5ff;
+        }
+        .drop-area.active {
+            background: rgba(0, 229, 255, 0.1);
+            border-color: #00e5ff;
+        }
+
+        .result-card {
+            background: rgba(255, 255, 255, 0.95);
+            color: #333;
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 20px;
+            animation: fadeIn 0.6s ease;
+        }
+
+        .risk-circle {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+            color: white;
+        }
+        
+        .risk-score-text { font-size: 2rem; line-height: 1; }
+        .risk-label-text { font-size: 0.8rem; opacity: 0.9; }
+
+        .stat-card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            color: white;
+        }
+
+        .severity-badge {
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+        .severity-critical { background: #7b1e1e; color: white; }
+        .severity-high { background: #dc3545; color: white; }
+        .severity-medium { background: #fd7e14; color: white; }
+        .severity-low { background: #28a745; color: white; }
+
+        .finding-item {
+            border-left: 4px solid;
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .finding-critical { border-left-color: #7b1e1e; }
+        .finding-high { border-left-color: #dc3545; }
+        .finding-medium { border-left-color: #fd7e14; }
+        .finding-low { border-left-color: #28a745; }
+
+        .hidden { display: none !important; }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .nav-tabs .nav-link {
+            color: white;
+        }
+        .nav-tabs .nav-link.active {
+            background-color: #00e5ff;
+            color: #0f2027;
+            border-color: #00e5ff;
+        }
+        .tab-content {
+            background: white;
+            border-radius: 0 0 15px 15px;
+            padding: 20px;
+            color: #333;
+        }
+        pre {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container py-4">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="logo">
+            <i class="fa-solid fa-shield-halved text-info"></i>
+            <span>CyberKnights</span>
+        </div>
+        <div>
+            <span class="badge bg-info text-dark">v2.0</span>
+        </div>
+    </div>
+
+    <!-- Main Card -->
+    <div class="row justify-content-center">
+        <div class="col-lg-10">
+            <div class="glass">
+                <!-- Upload Area -->
+                <div class="drop-area" id="dropZone">
+                    <div id="uploadPrompt">
+                        <i class="fa-solid fa-cloud-arrow-up fa-3x mb-3 text-info"></i>
+                        <h4>Select APK File</h4>
+                        <p class="text-white-50 mb-0">Drag & Drop or Click to Browse</p>
+                        <small class="text-white-50">Supports .apk only</small>
+                    </div>
+                    
+                    <div id="filePreview" class="hidden">
+                        <i class="fa-brands fa-android fa-4x text-success mb-3"></i>
+                        <h5 id="fileNameDisplay" class="mb-2">filename.apk</h5>
+                        <span class="badge bg-success mb-3">Ready to Analyze</span>
+                        <br>
+                        <button class="btn btn-sm btn-outline-light" onclick="clearFile(event)">Change File</button>
+                    </div>
+                    <input type="file" id="fileInput" accept=".apk" hidden>
+                </div>
+
+                <div class="d-grid gap-2 mt-4">
+                    <button class="btn btn-info btn-lg fw-bold" onclick="uploadFile()" id="analyzeBtn" disabled>
+                        <i class="fa-solid fa-magnifying-glass me-2"></i> Analyze APK
+                    </button>
+                </div>
+
+                <!-- Loading Spinner -->
+                <div id="loading" class="text-center mt-4 hidden">
+                    <div class="spinner-border text-info" role="status"></div>
+                    <p class="mt-2 text-info">Analyzing APK... This may take a minute</p>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <div id="resultSection" class="hidden mt-4">
+                <!-- Summary Cards -->
+                <div class="row g-3 mb-4">
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="stat-value" id="statTotal">0</div>
+                            <div class="stat-label">Total Findings</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card" style="background: rgba(123, 30, 30, 0.3);">
+                            <div class="stat-value" id="statCritical">0</div>
+                            <div class="stat-label">Critical</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card" style="background: rgba(220, 53, 69, 0.3);">
+                            <div class="stat-value" id="statHigh">0</div>
+                            <div class="stat-label">High</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card" style="background: rgba(253, 126, 20, 0.3);">
+                            <div class="stat-value" id="statMedium">0</div>
+                            <div class="stat-label">Medium</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Risk Score Card -->
+                <div class="result-card text-center">
+                    <h3 id="appName" class="fw-bold mb-3">Application Name</h3>
+                    
+                    <div class="row align-items-center">
+                        <div class="col-md-4">
+                            <div id="riskCircle" class="risk-circle mb-3" style="background: #28a745;">
+                                <span class="risk-score-text" id="scoreValue">0%</span>
+                                <span class="risk-label-text">RISK</span>
+                            </div>
+                            <h4 id="riskLevel" class="fw-bold">Safe</h4>
+                        </div>
+                        <div class="col-md-8">
+                            <p id="summary" class="text-muted"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Permissions Card -->
+                <div class="result-card">
+                    <h5><i class="fa-solid fa-key text-warning me-2"></i> Permissions Detected</h5>
+                    <div class="row" id="permissionsContainer">
+                        <!-- Permissions will be loaded here -->
+                    </div>
+                </div>
+
+                <!-- Detailed Findings Tabs -->
+                <div class="result-card">
+                    <ul class="nav nav-tabs" id="reportTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="summary-tab" data-bs-toggle="tab" data-bs-target="#summary" type="button" role="tab">Summary</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="findings-tab" data-bs-toggle="tab" data-bs-target="#findings" type="button" role="tab">All Findings</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="json-tab" data-bs-toggle="tab" data-bs-target="#json" type="button" role="tab">Raw JSON</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="html-tab" data-bs-toggle="tab" data-bs-target="#html" type="button" role="tab">HTML Report</button>
+                        </li>
+                    </ul>
+                    
+                    <div class="tab-content mt-3" id="reportTabContent">
+                        <!-- Summary Tab -->
+                        <div class="tab-pane fade show active" id="summary" role="tabpanel">
+                            <div id="owaspSummary"></div>
+                        </div>
+                        
+                        <!-- Findings Tab -->
+                        <div class="tab-pane fade" id="findings" role="tabpanel">
+                            <div id="findingsList"></div>
+                        </div>
+                        
+                        <!-- JSON Tab -->
+                        <div class="tab-pane fade" id="json" role="tabpanel">
+                            <pre><code class="language-json" id="jsonContent"></code></pre>
+                        </div>
+                        
+                        <!-- HTML Tab -->
+                        <div class="tab-pane fade" id="html" role="tabpanel">
+                            <iframe id="htmlFrame" style="width:100%; height:600px; border:none;"></iframe>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="d-flex justify-content-center gap-3 mt-4">
+                    <button class="btn btn-success btn-lg" onclick="downloadJSON()">
+                        <i class="fa-solid fa-download me-2"></i> Download JSON
+                    </button>
+                    <button class="btn btn-primary btn-lg" onclick="downloadHTML()">
+                        <i class="fa-solid fa-file-code me-2"></i> Download HTML
+                    </button>
+                    <button class="btn btn-outline-light btn-lg" onclick="location.reload()">
+                        <i class="fa-solid fa-rotate-right me-2"></i> Analyze Another
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="text-center text-white-50 mt-5">
+        <p>© 2026 CyberKnights • Security Research Group</p>
+    </div>
+</div>
+
+<!-- Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+
+<script>
+    // Wait for DOM to be fully loaded before running any code
+    document.addEventListener('DOMContentLoaded', function() {
+        // Global variable to store current analysis data
+        let currentReport = null;
+        let currentHTML = null;
+
+        // DOM Elements - get them after DOM is loaded
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const uploadPrompt = document.getElementById('uploadPrompt');
+        const filePreview = document.getElementById('filePreview');
+        const fileNameDisplay = document.getElementById('fileNameDisplay');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const loading = document.getElementById('loading');
+        const resultSection = document.getElementById('resultSection');
+        const appName = document.getElementById('appName');
+        const statTotal = document.getElementById('statTotal');
+        const statCritical = document.getElementById('statCritical');
+        const statHigh = document.getElementById('statHigh');
+        const statMedium = document.getElementById('statMedium');
+        const statLow = document.getElementById('statLow');
+        const riskCircle = document.getElementById('riskCircle');
+        const scoreValue = document.getElementById('scoreValue');
+        const riskLevel = document.getElementById('riskLevel');
+        const summary = document.getElementById('summary');
+        const permissionsContainer = document.getElementById('permissionsContainer');
+        const owaspSummary = document.getElementById('owaspSummary');
+        const findingsList = document.getElementById('findingsList');
+        const jsonContent = document.getElementById('jsonContent');
+        const htmlFrame = document.getElementById('htmlFrame');
+
+        // Check if all elements exist
+        if (!dropZone || !fileInput || !analyzeBtn) {
+            console.error('Critical elements not found!');
+            return;
+        }
+
+        // File upload handling
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', handleFileSelect);
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.style.background = "rgba(255,255,255,0.2)";
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.style.background = "";
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.style.background = "";
+            if (e.dataTransfer.files.length) {
+                fileInput.files = e.dataTransfer.files;
+                handleFileSelect();
+            }
+        });
+
+        function handleFileSelect() {
+            if (fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                if (!file.name.endsWith('.apk')) {
+                    alert("Please upload an .apk file");
+                    fileInput.value = '';
+                    return;
+                }
+                uploadPrompt.classList.add('hidden');
+                filePreview.classList.remove('hidden');
+                dropZone.classList.add('active');
+                fileNameDisplay.innerText = file.name;
+                analyzeBtn.removeAttribute('disabled');
+            }
+        }
+
+        window.clearFile = function(event) {
+            event.stopPropagation();
+            fileInput.value = '';
+            uploadPrompt.classList.remove('hidden');
+            filePreview.classList.add('hidden');
+            dropZone.classList.remove('active');
+            analyzeBtn.setAttribute('disabled', 'true');
+        };
+
+        window.uploadFile = async function() {
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            loading.classList.remove('hidden');
+            resultSection.classList.add('hidden');
+            analyzeBtn.setAttribute('disabled', 'true');
+
+            const formData = new FormData();
+            formData.append("file", file);
+
+            try {
+                const response = await fetch("/analyze", {
+                    method: "POST",
+                    body: formData
+                });
+
+                if (!response.ok) throw new Error(await response.text());
+
+                const data = await response.json();
+                currentReport = data.full_report;
+                currentHTML = data.html_report;
+                
+                displayResults(data);
+                resultSection.classList.remove('hidden');
+
+            } catch (error) {
+                console.error(error);
+                alert("Analysis failed: " + error.message);
+            } finally {
+                loading.classList.add('hidden');
+                analyzeBtn.removeAttribute('disabled');
+            }
+        };
+
+        function displayResults(data) {
+            // Update app name
+            if (appName) appName.innerText = data.app_name;
+            
+            // Update stats
+            if (statTotal) statTotal.innerText = data.stats.total_findings;
+            if (statCritical) statCritical.innerText = data.stats.critical;
+            if (statHigh) statHigh.innerText = data.stats.high;
+            if (statMedium) statMedium.innerText = data.stats.medium;
+            if (statLow) statLow.innerText = data.stats.low;
+            
+            // Update risk score
+            const score = data.risk_score;
+            if (scoreValue) scoreValue.innerText = score + "%";
+            if (summary) summary.innerText = data.summary;
+
+            if (riskCircle && riskLevel) {
+                if (score < 30) {
+                    riskCircle.style.background = "#28a745";
+                    riskLevel.innerText = "Safe";
+                } else if (score < 60) {
+                    riskCircle.style.background = "#fd7e14";
+                    riskLevel.innerText = "Moderate Risk";
+                } else {
+                    riskCircle.style.background = "#dc3545";
+                    riskLevel.innerText = "High Risk";
+                }
+            }
+
+            // Display permissions
+            if (permissionsContainer) {
+                permissionsContainer.innerHTML = "";
+                if (data.permissions && data.permissions.length > 0) {
+                    data.permissions.forEach(p => {
+                        const cleanName = p.replace("android.permission.", "");
+                        permissionsContainer.innerHTML += `
+                            <div class="col-md-4 mb-2">
+                                <span class="badge bg-warning text-dark p-2">${cleanName}</span>
+                            </div>
+                        `;
+                    });
+                } else {
+                    permissionsContainer.innerHTML = "<div class='col-12'><p class='text-muted'>No dangerous permissions found</p></div>";
+                }
+            }
+
+            // Display OWASP summary
+            if (owaspSummary) displayOWASPSummary(data.full_report);
+            
+            // Display all findings
+            if (findingsList) displayFindings(data.full_report);
+            
+            // Display JSON
+            if (jsonContent) {
+                jsonContent.innerText = JSON.stringify(data.full_report, null, 2);
+                if (typeof Prism !== 'undefined') Prism.highlightAll();
+            }
+            
+            // Display HTML report
+            if (htmlFrame && data.html_report) {
+                const blob = new Blob([data.html_report], { type: 'text/html' });
+                htmlFrame.src = URL.createObjectURL(blob);
+            }
+        }
+
+        function displayOWASPSummary(report) {
+            const findingsByOwasp = report.findings_by_owasp_category || {};
+            let html = '<div class="table-responsive"><table class="table table-striped" id="owaspTable">';
+            html += '<thead><tr><th>OWASP Category</th><th>Count</th><th>Severities</th></tr></thead><tbody>';
+            
+            for (const [category, findings] of Object.entries(findingsByOwasp)) {
+                const severities = {};
+                findings.forEach(f => {
+                    severities[f.severity] = (severities[f.severity] || 0) + 1;
+                });
+                const severityStr = Object.entries(severities)
+                    .map(([sev, count]) => `${count} ${sev}`)
+                    .join(', ');
+                
+                html += `<tr>
+                    <td>${category}</td>
+                    <td>${findings.length}</td>
+                    <td>${severityStr}</td>
+                </tr>`;
+            }
+            
+            html += '</tbody></table></div>';
+            owaspSummary.innerHTML = html;
+            
+            // Initialize DataTable if jQuery exists
+            if (typeof $ !== 'undefined' && $.fn.DataTable) {
+                $('#owaspTable').DataTable({
+                    pageLength: 10,
+                    lengthChange: false,
+                    ordering: true
+                });
+            }
+        }
+
+        function displayFindings(report) {
+            const allFindings = report.all_findings || [];
+            let html = '';
+            
+            allFindings.forEach(finding => {
+                const severity = finding.severity.toLowerCase();
+                html += `
+                    <div class="finding-item finding-${severity}">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <h5 class="mb-2">${finding.title}</h5>
+                            <span class="severity-badge severity-${severity}">${finding.severity}</span>
+                        </div>
+                        <p class="mb-2 text-muted">${finding.description}</p>
+                        <div class="small">
+                            <strong>OWASP:</strong> ${finding.owasp_category}<br>
+                            <strong>Component:</strong> ${finding.affected_component || 'N/A'}<br>
+                            <strong>Remediation:</strong> ${finding.remediation}
+                        </div>
+                        ${finding.evidence ? `
+                            <div class="mt-2 p-2 bg-light">
+                                <strong>Evidence:</strong>
+                                <pre class="small mb-0">${JSON.stringify(finding.evidence, null, 2)}</pre>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+            
+            findingsList.innerHTML = html || '<p class="text-muted">No findings</p>';
+        }
+
+        window.downloadJSON = function() {
+            if (!currentReport) return;
+            const blob = new Blob([JSON.stringify(currentReport, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${currentReport.apk_metadata.package_name}_report.json`;
+            a.click();
+        };
+
+        window.downloadHTML = function() {
+            if (!currentHTML) return;
+            const blob = new Blob([currentHTML], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${currentReport?.apk_metadata?.package_name || 'report'}.html`;
+            a.click();
+        };
+    });
+</script>
+</body>
+</html>
