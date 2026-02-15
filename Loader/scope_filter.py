@@ -185,6 +185,18 @@ class AnalysisReadyAPK:
     webview_apis: List[APIAPI]
     dynamic_code_apis: List[APIAPI]
     
+    # NEW: Source APIs (untrusted input detection)
+    intent_apis: List[APIAPI]
+    user_input_apis: List[APIAPI]
+    web_input_apis: List[APIAPI]
+    
+    # NEW: Sink APIs (dangerous operations)
+    sql_apis: List[APIAPI]
+    command_exec_apis: List[APIAPI]
+    file_write_apis: List[APIAPI]
+    crypto_weak_apis: List[CryptoAPI]  # Uses CryptoAPI for parameter extraction
+    webview_sink_apis: List[APIAPI]
+    
     # Security-relevant strings
     strings: List[SecurityString]
     
@@ -197,6 +209,13 @@ class AnalysisReadyAPK:
     debuggable: Optional[bool]
     uses_cleartext_traffic: Optional[bool]
     network_security_config: Optional[str]
+    
+    # NEW: Risk flags (computed from manifest)
+    cleartext_traffic_allowed: bool
+    backup_enabled: bool
+    uses_test_keys: bool
+    exported_without_permission: bool
+    dangerous_permissions_used: bool
     
     # Third-party libraries
     third_party_libraries: List[Dict[str, str]]
@@ -223,6 +242,16 @@ class AnalysisReadyAPK:
                 "reflection_apis_count": len(self.reflection_apis),
                 "webview_apis_count": len(self.webview_apis),
                 "dynamic_code_apis_count": len(self.dynamic_code_apis),
+                # NEW: Source API counts
+                "intent_apis_count": len(self.intent_apis),
+                "user_input_apis_count": len(self.user_input_apis),
+                "web_input_apis_count": len(self.web_input_apis),
+                # NEW: Sink API counts
+                "sql_apis_count": len(self.sql_apis),
+                "command_exec_apis_count": len(self.command_exec_apis),
+                "file_write_apis_count": len(self.file_write_apis),
+                "crypto_weak_apis_count": len(self.crypto_weak_apis),
+                "webview_sink_apis_count": len(self.webview_sink_apis),
                 "suspicious_strings_count": len(self.strings),
                 "exported_components_count": len(self.exported_components),
                 "dangerous_permissions_count": len(self.dangerous_permissions)
@@ -234,7 +263,17 @@ class AnalysisReadyAPK:
                 "storage": [api.to_dict() for api in self.storage_apis],
                 "reflection": [api.to_dict() for api in self.reflection_apis],
                 "webview": [api.to_dict() for api in self.webview_apis],
-                "dynamic_code": [api.to_dict() for api in self.dynamic_code_apis]
+                "dynamic_code": [api.to_dict() for api in self.dynamic_code_apis],
+                # NEW: Source APIs
+                "intent": [api.to_dict() for api in self.intent_apis],
+                "user_input": [api.to_dict() for api in self.user_input_apis],
+                "web_input": [api.to_dict() for api in self.web_input_apis],
+                # NEW: Sink APIs
+                "sql": [api.to_dict() for api in self.sql_apis],
+                "command_exec": [api.to_dict() for api in self.command_exec_apis],
+                "file_write": [api.to_dict() for api in self.file_write_apis],
+                "crypto_weak": [api.to_dict() for api in self.crypto_weak_apis],
+                "webview_sink": [api.to_dict() for api in self.webview_sink_apis],
             },
             "security_strings": [s.to_dict() for s in self.strings],
             "manifest_analysis": {
@@ -243,7 +282,15 @@ class AnalysisReadyAPK:
                 "allow_backup": self.allow_backup,
                 "debuggable": self.debuggable,
                 "uses_cleartext_traffic": self.uses_cleartext_traffic,
-                "network_security_config": self.network_security_config
+                "network_security_config": self.network_security_config,
+                # NEW: Risk flags
+                "risk_flags": {
+                    "cleartext_traffic_allowed": self.cleartext_traffic_allowed,
+                    "backup_enabled": self.backup_enabled,
+                    "uses_test_keys": self.uses_test_keys,
+                    "exported_without_permission": self.exported_without_permission,
+                    "dangerous_permissions_used": self.dangerous_permissions_used,
+                }
             },
             "third_party_libraries": self.third_party_libraries
         }
@@ -496,6 +543,76 @@ class ScopeFilter:
         r'loadDex': 'loadDex',
         r'DexFile;->': 'DexFile',
     }
+    
+    # NEW: Source API patterns for untrusted input detection
+    SOURCE_INTENT_PATTERNS = {
+        r'Activity;->getIntent': 'Activity.getIntent',
+        r'Intent;->getStringExtra': 'Intent.getStringExtra',
+        r'Intent;->getIntExtra': 'Intent.getIntExtra',
+        r'Intent;->getBooleanExtra': 'Intent.getBooleanExtra',
+        r'Intent;->getExtras': 'Intent.getExtras',
+        r'Intent;->getData': 'Intent.getData',
+        r'Intent;->getDataString': 'Intent.getDataString',
+        r'Intent;->getAction': 'Intent.getAction',
+        r'Intent;->getParcelableExtra': 'Intent.getParcelableExtra',
+        r'Intent;->getSerializableExtra': 'Intent.getSerializableExtra',
+    }
+    
+    SOURCE_USER_INPUT_PATTERNS = {
+        r'EditText;->getText': 'EditText.getText',
+        r'TextView;->getText': 'TextView.getText',
+        r'EditText;->getEditableText': 'EditText.getEditableText',
+        r'SearchView;->getQuery': 'SearchView.getQuery',
+        r'AutoCompleteTextView;->getText': 'AutoCompleteTextView.getText',
+    }
+    
+    SOURCE_WEB_INPUT_PATTERNS = {
+        r'WebView;->loadUrl': 'WebView.loadUrl',
+        r'WebView;->loadData': 'WebView.loadData',
+        r'WebView;->loadDataWithBaseURL': 'WebView.loadDataWithBaseURL',
+        r'WebView;->evaluateJavascript': 'WebView.evaluateJavascript',
+        r'WebView;->addJavascriptInterface': 'WebView.addJavascriptInterface',
+    }
+    
+    # NEW: Sink API patterns for dangerous operations
+    SINK_SQL_PATTERNS = {
+        r'SQLiteDatabase;->execSQL': 'SQLiteDatabase.execSQL',
+        r'SQLiteDatabase;->rawQuery': 'SQLiteDatabase.rawQuery',
+        r'SQLiteDatabase;->query': 'SQLiteDatabase.query',
+        r'SQLiteDatabase;->delete': 'SQLiteDatabase.delete',
+        r'SQLiteDatabase;->update': 'SQLiteDatabase.update',
+        r'SQLiteDatabase;->insert': 'SQLiteDatabase.insert',
+    }
+    
+    SINK_COMMAND_EXEC_PATTERNS = {
+        r'Runtime;->exec': 'Runtime.exec',
+        r'ProcessBuilder;->start': 'ProcessBuilder.start',
+        r'ProcessBuilder;->command': 'ProcessBuilder.command',
+    }
+    
+    SINK_FILE_WRITE_PATTERNS = {
+        r'FileOutputStream;-><init>': 'FileOutputStream.<init>',
+        r'FileOutputStream;->write': 'FileOutputStream.write',
+        r'openFileOutput': 'Context.openFileOutput',
+        r'FileWriter;-><init>': 'FileWriter.<init>',
+        r'FileWriter;->write': 'FileWriter.write',
+        r'RandomAccessFile;->write': 'RandomAccessFile.write',
+    }
+    
+    SINK_CRYPTO_WEAK_PATTERNS = {
+        r'Cipher;->getInstance': 'Cipher.getInstance',
+        r'SecretKeySpec;-><init>': 'SecretKeySpec.<init>',
+        r'IvParameterSpec;-><init>': 'IvParameterSpec.<init>',
+        r'KeyGenerator;->getInstance': 'KeyGenerator.getInstance',
+    }
+    
+    SINK_WEBVIEW_PATTERNS = {
+        r'WebSettings;->setJavaScriptEnabled': 'WebSettings.setJavaScriptEnabled',
+        r'WebView;->setJavaScriptEnabled': 'WebView.setJavaScriptEnabled',
+        r'WebView;->addJavascriptInterface': 'WebView.addJavascriptInterface',
+        r'WebView;->setAllowFileAccess': 'WebView.setAllowFileAccess',
+        r'WebView;->setAllowContentAccess': 'WebView.setAllowContentAccess',
+    }
 
     def __init__(self, model: APKModel):
         """
@@ -524,6 +641,18 @@ class ScopeFilter:
         self._reflection_apis: Optional[List[APIAPI]] = None
         self._webview_apis: Optional[List[APIAPI]] = None
         self._dynamic_code_apis: Optional[List[APIAPI]] = None
+        
+        # NEW: Source API caches
+        self._intent_apis: Optional[List[APIAPI]] = None
+        self._user_input_apis: Optional[List[APIAPI]] = None
+        self._web_input_apis: Optional[List[APIAPI]] = None
+        
+        # NEW: Sink API caches
+        self._sql_apis: Optional[List[APIAPI]] = None
+        self._command_exec_apis: Optional[List[APIAPI]] = None
+        self._file_write_apis: Optional[List[APIAPI]] = None
+        self._crypto_weak_apis: Optional[List[CryptoAPI]] = None
+        self._webview_sink_apis: Optional[List[APIAPI]] = None
         
         # Lazy-loaded analysis data
         self._security_strings: Optional[List[SecurityString]] = None
@@ -642,6 +771,18 @@ class ScopeFilter:
         self._reflection_regex = {re.compile(p): name for p, name in self.REFLECTION_PATTERNS.items()}
         self._webview_regex = {re.compile(p): name for p, name in self.WEBVIEW_PATTERNS.items()}
         self._dynamic_code_regex = {re.compile(p): name for p, name in self.DYNAMIC_CODE_PATTERNS.items()}
+        
+        # NEW: Compile source API patterns
+        self._intent_regex = {re.compile(p): name for p, name in self.SOURCE_INTENT_PATTERNS.items()}
+        self._user_input_regex = {re.compile(p): name for p, name in self.SOURCE_USER_INPUT_PATTERNS.items()}
+        self._web_input_regex = {re.compile(p): name for p, name in self.SOURCE_WEB_INPUT_PATTERNS.items()}
+        
+        # NEW: Compile sink API patterns
+        self._sql_regex = {re.compile(p): name for p, name in self.SINK_SQL_PATTERNS.items()}
+        self._command_exec_regex = {re.compile(p): name for p, name in self.SINK_COMMAND_EXEC_PATTERNS.items()}
+        self._file_write_regex = {re.compile(p): name for p, name in self.SINK_FILE_WRITE_PATTERNS.items()}
+        self._crypto_weak_regex = {re.compile(p): name for p, name in self.SINK_CRYPTO_WEAK_PATTERNS.items()}
+        self._webview_sink_regex = {re.compile(p): name for p, name in self.SINK_WEBVIEW_PATTERNS.items()}
         
         # String patterns (combined for performance)
         self._url_pattern = re.compile(r'https?://[^\s<>"{}|\\^`\[\]]+|content://[^\s<>"{}|\\^`\[\]]+')
@@ -1214,6 +1355,21 @@ class ScopeFilter:
         webview_apis = self._categorize_apis(app_methods, self._webview_regex, "webview")
         dynamic_code_apis = self._categorize_apis(app_methods, self._dynamic_code_regex, "dynamic_code")
         
+        # NEW: Categorize source APIs (untrusted input detection)
+        self.logger.info("Categorizing source APIs (untrusted input)")
+        intent_apis = self._categorize_apis(app_methods, self._intent_regex, "intent_source")
+        user_input_apis = self._categorize_apis(app_methods, self._user_input_regex, "user_input_source")
+        web_input_apis = self._categorize_apis(app_methods, self._web_input_regex, "web_input_source")
+        
+        # NEW: Categorize sink APIs (dangerous operations)
+        self.logger.info("Categorizing sink APIs (dangerous operations)")
+        sql_apis = self._categorize_apis(app_methods, self._sql_regex, "sql_sink")
+        command_exec_apis = self._categorize_apis(app_methods, self._command_exec_regex, "command_exec_sink")
+        file_write_apis = self._categorize_apis(app_methods, self._file_write_regex, "file_write_sink")
+        # Crypto weak uses CryptoAPI for parameter extraction
+        crypto_weak_apis = self._categorize_apis(app_methods, self._crypto_weak_regex, "crypto")
+        webview_sink_apis = self._categorize_apis(app_methods, self._webview_sink_regex, "webview_sink")
+        
         # Analyze strings
         self.logger.info("Analyzing strings for security issues")
         security_strings = []
@@ -1265,6 +1421,35 @@ class ScopeFilter:
             for lib in self.model.third_party_libraries
         ]
         
+        # NEW: Compute risk flags from manifest
+        self.logger.info("Computing manifest risk flags")
+        cleartext_traffic_allowed = bool(self.model.manifest.application.uses_cleartext_traffic)
+        backup_enabled = bool(self.model.manifest.application.allow_backup)
+        
+        # Check for test keys (heuristic: debug keystore fingerprints)
+        uses_test_keys = False
+        if self.model.certificates:
+            for cert in self.model.certificates:
+                # Android debug keystore has known fingerprints
+                debug_fingerprints = {
+                    'C51CE410C124A10E0DB5E4B97FC2E81DDB8AD4',  # Common debug cert
+                    '38918A453D07199354F8B19AF05EC6562CED5788',  # Another common debug
+                }
+                # Check SHA1 fingerprint (remove colons)
+                sha1_clean = cert.fingerprint_sha1.replace(':', '').upper()
+                if sha1_clean in debug_fingerprints or 'debug' in cert.subject.lower():
+                    uses_test_keys = True
+                    break
+        
+        # Check for exported components without permission
+        exported_without_permission = any(
+            comp.exported and not comp.permission
+            for comp in exported_components
+        )
+        
+        # Check if dangerous permissions are used
+        dangerous_permissions_used = len(dangerous_permissions) > 0
+        
         # Build analysis-ready object
         self._analysis_ready = AnalysisReadyAPK(
             package_name=self.model.manifest.package_name,
@@ -1284,6 +1469,16 @@ class ScopeFilter:
             reflection_apis=reflection_apis,
             webview_apis=webview_apis,
             dynamic_code_apis=dynamic_code_apis,
+            # NEW: Source APIs
+            intent_apis=intent_apis,
+            user_input_apis=user_input_apis,
+            web_input_apis=web_input_apis,
+            # NEW: Sink APIs
+            sql_apis=sql_apis,
+            command_exec_apis=command_exec_apis,
+            file_write_apis=file_write_apis,
+            crypto_weak_apis=crypto_weak_apis,
+            webview_sink_apis=webview_sink_apis,
             strings=security_strings,
             exported_components=exported_components,
             dangerous_permissions=dangerous_permissions,
@@ -1291,10 +1486,19 @@ class ScopeFilter:
             debuggable=self.model.manifest.application.debuggable,
             uses_cleartext_traffic=self.model.manifest.application.uses_cleartext_traffic,
             network_security_config=self.model.manifest.application.network_security_config,
+            # NEW: Risk flags
+            cleartext_traffic_allowed=cleartext_traffic_allowed,
+            backup_enabled=backup_enabled,
+            uses_test_keys=uses_test_keys,
+            exported_without_permission=exported_without_permission,
+            dangerous_permissions_used=dangerous_permissions_used,
             third_party_libraries=third_party
         )
         
         self.logger.info("Analysis-ready data prepared successfully")
+        self.logger.info(f"Source API detection: {len(intent_apis)} intent, {len(user_input_apis)} user input, {len(web_input_apis)} web input")
+        self.logger.info(f"Sink API detection: {len(sql_apis)} SQL, {len(command_exec_apis)} command exec, {len(file_write_apis)} file write")
+        self.logger.info(f"Risk flags: cleartext={cleartext_traffic_allowed}, backup={backup_enabled}, test_keys={uses_test_keys}")
         self.logger.info(f"False positive reduction: provider-specific patterns, contextual detection")
         self.logger.info(f"v2.2: Production-hardened with UUID filtering, test key detection, tighter entropy")
         
@@ -1363,6 +1567,16 @@ def main():
             print(f"Reflection APIs:  {len(analysis_ready.reflection_apis)}")
             print(f"WebView APIs:     {len(analysis_ready.webview_apis)}")
             print(f"Dynamic Code:     {len(analysis_ready.dynamic_code_apis)}")
+            print(f"\nSource APIs (Untrusted Input):")
+            print(f"Intent APIs:      {len(analysis_ready.intent_apis)}")
+            print(f"User Input APIs:  {len(analysis_ready.user_input_apis)}")
+            print(f"Web Input APIs:   {len(analysis_ready.web_input_apis)}")
+            print(f"\nSink APIs (Dangerous Operations):")
+            print(f"SQL APIs:         {len(analysis_ready.sql_apis)}")
+            print(f"Command Exec:     {len(analysis_ready.command_exec_apis)}")
+            print(f"File Write:       {len(analysis_ready.file_write_apis)}")
+            print(f"Crypto Weak:      {len(analysis_ready.crypto_weak_apis)}")
+            print(f"WebView Sink:     {len(analysis_ready.webview_sink_apis)}")
             print(f"\nSecurity Issues:")
             print(f"Suspicious strings:     {len(analysis_ready.strings)}")
             print(f"Exported components:    {len(analysis_ready.exported_components)}")
@@ -1371,6 +1585,12 @@ def main():
             print(f"Allow backup:          {analysis_ready.allow_backup}")
             print(f"Debuggable:            {analysis_ready.debuggable}")
             print(f"Cleartext traffic:     {analysis_ready.uses_cleartext_traffic}")
+            print(f"\nRisk Flags:")
+            print(f"Cleartext allowed:     {analysis_ready.cleartext_traffic_allowed}")
+            print(f"Backup enabled:        {analysis_ready.backup_enabled}")
+            print(f"Uses test keys:        {analysis_ready.uses_test_keys}")
+            print(f"Exported w/o perm:     {analysis_ready.exported_without_permission}")
+            print(f"Dangerous perms used:  {analysis_ready.dangerous_permissions_used}")
             print("="*60)
         
         # Show confidence scores if requested
